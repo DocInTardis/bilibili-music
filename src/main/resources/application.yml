@@ -1,0 +1,16 @@
+spring:
+  application:
+    name: bilibili-music
+
+ollama:
+  base-url: http://localhost:11434
+  model: qwen:7b
+
+bilibili:
+  search-url-template: "https://search.bilibili.com/all?keyword={query}&from_source=webtop_search&spm_id_from=333.1007&search_source=3"
+  headless: false  # 设置为 false 可以显示浏览器窗口，便于调试和观察
+
+logging:
+  level:
+    root: INFO
+    com.example.bilibilimusic: DEBUG

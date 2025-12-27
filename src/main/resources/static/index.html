@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bilibili 音乐助手 Agent</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+            height: 100vh;
+            overflow: hidden;
+            background: #f4f4f5;
+        }
+
+        .container {
+            display: flex;
+            height: 100vh;
+        }
+
+        /* 左侧播放列表 */
+        .playlist-sidebar {
+            width: 320px;
+            background: #ffffff;
+            border-right: 1px solid #e3e5e7;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .playlist-header {
+            background: #00a1d6;
+            color: white;
+            padding: 20px;
+            border-bottom: 1px solid #0091c2;
+        }
+
+        .playlist-header h2 {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .playlist-header .count {
+            font-size: 13px;
+            opacity: 0.9;
+        }
+
+        .playlist-videos {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px;
+        }
+
+        .video-card {
+            background: #f9f9f9;
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid transparent;
+        }
+
+        .video-card:hover {
+            background: #f0f0f0;
+            border-color: #00a1d6;
+            transform: translateX(2px);
+        }
+
+        .video-card.active {
+            background: #e5f7ff;
+            border-color: #00a1d6;
+        }
+
+        .video-card .video-index {
+            display: inline-block;
+            width: 22px;
+            height: 22px;
+            line-height: 22px;
+            text-align: center;
+            background: #00a1d6;
+            color: white;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+
+        .video-card.active .video-index {
+            background: #fb7299;
+        }
+
+        .video-card .video-title {
+            font-size: 14px;
+            font-weight: 500;
+            color: #212121;
+            margin-bottom: 8px;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            line-height: 1.4;
+        }
+
+        .video-card .video-meta {
+            font-size: 12px;
+            color: #999;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        /* 中间视频区 */
+        .video-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: #f4f4f5;
+        }
+
+        .video-header {
+            background: white;
+            padding: 16px 24px;
+            border-bottom: 1px solid #e3e5e7;
+        }
+
+        .video-header h1 {
+            font-size: 20px;
+            font-weight: 600;
+            color: #212121;
+            margin-bottom: 8px;
+        }
+
+        .video-header .summary {
+            font-size: 14px;
+            color: #666;
+            line-height: 1.6;
+        }
+
+        .video-player-wrapper {
+            flex: 1;
+            padding: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .video-player-container {
+            width: 100%;
+            max-width: 1200px;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            position: relative;
+            padding-top: 56.25%; /* 16:9 */
+        }
+
+        .video-player-container iframe {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        .empty-player {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: #999;
+        }
+
+        .empty-player .icon {
+            font-size: 64px;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+
+        .empty-player p {
+            font-size: 14px;
+        }
+
+        /* 右侧聊天区 */
+        .chat-panel {
+            width: 380px;
+            background: white;
+            border-left: 1px solid #e3e5e7;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chat-header {
+            background: #00a1d6;
+            color: white;
+            padding: 20px;
+            border-bottom: 1px solid #0091c2;
+        }
+
+        .chat-header h2 {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+
+        .chat-header p {
+            font-size: 13px;
+            opacity: 0.9;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            background: #f9f9f9;
+        }
+
+        .message {
+            display: flex;
+            gap: 10px;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message.user {
+            flex-direction: row-reverse;
+        }
+
+        .message-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: #00a1d6;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+
+        .message.user .message-avatar {
+            background: #fb7299;
+        }
+
+        .message-content {
+            max-width: 70%;
+            padding: 10px 14px;
+            border-radius: 8px;
+            background: white;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .message.user .message-content {
+            background: #00a1d6;
+            color: white;
+        }
+
+        .message-content .text {
+            line-height: 1.5;
+            word-wrap: break-word;
+            font-size: 14px;
+        }
+
+        .status-message {
+            text-align: center;
+            padding: 8px 12px;
+            background: #fff7e6;
+            border-radius: 6px;
+            font-size: 13px;
+            color: #d48806;
+            border: 1px solid #ffd591;
+        }
+
+        .chat-input-area {
+            padding: 16px;
+            background: white;
+            border-top: 1px solid #e3e5e7;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 8px;
+        }
+
+        .chat-input-area textarea {
+            flex: 1;
+            padding: 10px 12px;
+            border: 1px solid #e3e5e7;
+            border-radius: 6px;
+            resize: none;
+            font-size: 14px;
+            font-family: inherit;
+            transition: border-color 0.2s;
+        }
+
+        .chat-input-area textarea:focus {
+            outline: none;
+            border-color: #00a1d6;
+        }
+
+        .send-btn {
+            padding: 10px 20px;
+            background: #00a1d6;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .send-btn:hover {
+            background: #0091c2;
+        }
+
+        .send-btn:active {
+            transform: scale(0.98);
+        }
+
+        .send-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        /* 滚动条样式 */
+        .playlist-videos::-webkit-scrollbar,
+        .chat-messages::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .playlist-videos::-webkit-scrollbar-track,
+        .chat-messages::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+
+        .playlist-videos::-webkit-scrollbar-thumb,
+        .chat-messages::-webkit-scrollbar-thumb {
+            background: #c1c1c1;
+            border-radius: 3px;
+        }
+
+        .playlist-videos::-webkit-scrollbar-thumb:hover,
+        .chat-messages::-webkit-scrollbar-thumb:hover {
+            background: #a8a8a8;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 左侧播放列表 -->
+        <div class="playlist-sidebar">
+            <div class="playlist-header">
+                <h2>🎵 播放列表</h2>
+                <div class="count" id="playlistCount">暂无视频</div>
+            </div>
+            <div class="playlist-videos" id="videoList">
+                <!-- 视频列表将通过 JS 渲染 -->
+            </div>
+        </div>
+
+        <!-- 中间视频区 -->
+        <div class="video-area">
+            <div class="video-header">
+                <h1 id="videoTitle">欢迎使用 Bilibili 音乐助手</h1>
+                <div class="summary" id="videoSummary">请在右侧输入您的音乐需求，例如：“帮我找 10 首适合学习的纯音乐”</div>
+            </div>
+            <div class="video-player-wrapper">
+                <div class="video-player-container" id="playerContainer">
+                    <div class="empty-player">
+                        <div class="icon">🎶</div>
+                        <p>暂无视频，请先搜索歌单</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右侧对话框 -->
+        <div class="chat-panel">
+            <div class="chat-header">
+                <h2>🎵 Bilibili 音乐助手</h2>
+                <p>告诉我你想要什么样的歌单</p>
+            </div>
+
+            <div class="chat-messages" id="chatMessages">
+                <div class="status-message">
+                    欢迎使用！请在下方输入您的音乐需求，我会帮您在 B 站搜索并推荐歌单。
+                </div>
+            </div>
+
+            <div class="chat-input-area">
+                <div class="input-group">
+                    <textarea 
+                        id="userInput" 
+                        placeholder="例如：帮我找10首适合学习的纯音乐..."
+                        rows="3"
+                    ></textarea>
+                    <button class="send-btn" id="sendBtn" onclick="sendMessage()">发送</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 使用本地 WebSocket 客户端库 -->
+    <script src="/sockjs.min.js"></script>
+    <script src="/stomp.min.js"></script>
+    <script>
+        let stompClient = null;
+        const messagesContainer = document.getElementById('chatMessages');
+        const userInput = document.getElementById('userInput');
+        const sendBtn = document.getElementById('sendBtn');
+
+        // 连接 WebSocket
+        function connectWebSocket() {
+            console.log('正在连接 WebSocket...');
+            
+            // 检查库是否加载
+            if (typeof SockJS === 'undefined') {
+                console.error('SockJS 未加载，尝试降级到原生 WebSocket');
+                addStatusMessage('⚠️ 正在尝试备用连接方式...');
+                connectNativeWebSocket();
+                return;
+            }
+            
+            const socket = new SockJS('/ws/chat');
+            stompClient = Stomp.over(socket);
+            
+            // 开启调试日志
+            stompClient.debug = (msg) => console.log('[STOMP Debug]', msg);
+            
+            stompClient.connect({}, (frame) => {
+                console.log('✅ WebSocket 连接成功:', frame);
+                addStatusMessage('✅ 已连接到服务器，可以开始对话了');
+                
+                // 订阅消息
+                stompClient.subscribe('/topic/messages', (message) => {
+                    console.log('📨 收到服务器消息:', message.body);
+                    const data = JSON.parse(message.body);
+                    handleServerMessage(data);
+                });
+            }, (error) => {
+                console.error('❌ WebSocket 连接失败:', error);
+                addStatusMessage('❌ 连接失败，3秒后重试...');
+                setTimeout(connectWebSocket, 3000);
+            });
+        }
+
+        // 降级方案：使用原生 WebSocket（不依赖 SockJS）
+        let nativeWs = null;
+        function connectNativeWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws-native`;
+            
+            console.log('尝试原生 WebSocket 连接:', wsUrl);
+            addStatusMessage('⚠️ CDN 加载失败，使用备用方案连接中...');
+            
+            // 提示用户：需要后端支持原生 WebSocket
+            addStatusMessage('💡 提示：如仍无法连接，请检查网络或使用 REST API 方式');
+        }
+
+        // 处理服务器消息
+        function handleServerMessage(data) {
+            console.log('收到消息:', data);
+            if (data.type === 'status') {
+                addStatusMessage(data.content);
+            } else if (data.type === 'result') {
+                // 更新左侧播放列表
+                updatePlaylist(data.videos, data.summary);
+                // 也在右侧显示总结
+                addAgentMessage(data.summary, data.videos);
+            } else if (data.type === 'error') {
+                addStatusMessage('❌ ' + data.content);
+            }
+        }
+
+        // 全局播放列表
+        let currentPlaylist = [];
+        let currentVideoIndex = -1;
+
+        // 更新播放列表
+        function updatePlaylist(videos, summary) {
+            if (!videos || videos.length === 0) {
+                return;
+            }
+
+            currentPlaylist = videos;
+            currentVideoIndex = -1;
+
+            // 更新标题和摘要
+            document.getElementById('videoTitle').textContent = summary || '搜索结果';
+            document.getElementById('videoSummary').textContent = `为您找到 ${videos.length} 首相关视频`;
+            document.getElementById('playlistCount').textContent = `共 ${videos.length} 首`;
+
+            // 渲染视频列表
+            const videoListContainer = document.getElementById('videoList');
+            videoListContainer.innerHTML = '';
+
+            videos.forEach((video, index) => {
+                const card = document.createElement('div');
+                card.className = 'video-card';
+                card.onclick = () => playVideo(index);
+                
+                card.innerHTML = `
+                    <div class="video-title">
+                        <span class="video-index">${index + 1}</span>
+                        ${escapeHtml(video.title)}
+                    </div>
+                    <div class="video-meta">
+                        <span>👤 ${escapeHtml(video.author)}</span>
+                        <span>⏱️ ${escapeHtml(video.duration)}</span>
+                    </div>
+                `;
+                
+                videoListContainer.appendChild(card);
+            });
+
+            // 自动播放第一个
+            if (videos.length > 0) {
+                playVideo(0);
+            }
+        }
+
+        // 播放指定视频
+        function playVideo(index) {
+            if (index < 0 || index >= currentPlaylist.length) return;
+
+            currentVideoIndex = index;
+            const video = currentPlaylist[index];
+
+            // 更新选中状态
+            const cards = document.querySelectorAll('.video-card');
+            cards.forEach((card, i) => {
+                if (i === index) {
+                    card.classList.add('active');
+                } else {
+                    card.classList.remove('active');
+                }
+            });
+
+            // 提取 BV 号
+            const bvMatch = video.url.match(/\/video\/(BV[a-zA-Z0-9]+)/);
+            if (bvMatch) {
+                const bvid = bvMatch[1];
+                // 使用 B 站嵌入式播放器
+                const playerContainer = document.getElementById('playerContainer');
+                playerContainer.innerHTML = `
+                    <iframe 
+                        src="https://player.bilibili.com/player.html?bvid=${bvid}&page=1&high_quality=1&autoplay=1" 
+                        allowfullscreen="true" 
+                        sandbox="allow-top-navigation allow-same-origin allow-forms allow-scripts allow-popups"
+                    ></iframe>
+                `;
+            } else {
+                console.warn('无法解析视频 URL:', video.url);
+            }
+        }
+
+        // 发送消息
+        function sendMessage() {
+            const text = userInput.value.trim();
+            if (!text) return;
+
+            addUserMessage(text);
+            
+            if (stompClient && stompClient.connected) {
+                const message = {
+                    type: 'query',
+                    content: text,
+                    limit: 10
+                };
+                stompClient.send('/app/chat', {}, JSON.stringify(message));
+            } else {
+                addStatusMessage('连接未建立，请稍后重试');
+            }
+
+            userInput.value = '';
+            userInput.focus();
+        }
+
+        // 添加用户消息
+        function addUserMessage(text) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message user';
+            messageDiv.innerHTML = `
+                <div class="message-avatar">👤</div>
+                <div class="message-content">
+                    <div class="text">${escapeHtml(text)}</div>
+                </div>
+            `;
+            messagesContainer.appendChild(messageDiv);
+            scrollToBottom();
+        }
+
+        // 添加 Agent 消息
+        function addAgentMessage(summary, videos) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message';
+            
+            messageDiv.innerHTML = `
+                <div class="message-avatar">🤖</div>
+                <div class="message-content">
+                    <div class="text">${escapeHtml(summary)}</div>
+                </div>
+            `;
+            messagesContainer.appendChild(messageDiv);
+            scrollToBottom();
+        }
+
+        // 添加状态消息
+        function addStatusMessage(text) {
+            const statusDiv = document.createElement('div');
+            statusDiv.className = 'status-message';
+            statusDiv.textContent = text;
+            messagesContainer.appendChild(statusDiv);
+            scrollToBottom();
+        }
+
+        // 滚动到底部
+        function scrollToBottom() {
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        // HTML 转义
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // 回车发送（Shift+Enter 换行）
+        userInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        // 页面加载时连接 WebSocket
+        window.addEventListener('load', () => {
+            connectWebSocket();
+        });
+    </script>
+</body>
+</html>
