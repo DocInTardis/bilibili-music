@@ -82,6 +82,8 @@ public class BilibiliSearchService {
                                     .url(finalUrl)
                                     .author("未知")
                                     .duration("未知")
+                                    .tags("")
+                                    .description("")
                                     .build());
                             log.debug("解析到视频: {}", title);
                         }
@@ -134,6 +136,8 @@ public class BilibiliSearchService {
                                 .url(finalUrl)
                                 .author(author)
                                 .duration(duration)
+                                .tags("")  // TODO: 标签需要点击进视频详情页才能获取
+                                .description("")
                                 .build());
                         log.debug("成功解析视频: {} - {}", title, author);
                     } catch (Exception e) {

@@ -563,12 +563,13 @@
             const bvMatch = video.url.match(/\/video\/(BV[a-zA-Z0-9]+)/);
             if (bvMatch) {
                 const bvid = bvMatch[1];
-                // 使用 B 站嵌入式播放器
+                // 使用 B 站嵌入式播放器，启用自动播放和音量
                 const playerContainer = document.getElementById('playerContainer');
                 playerContainer.innerHTML = `
                     <iframe 
-                        src="https://player.bilibili.com/player.html?bvid=${bvid}&page=1&high_quality=1&autoplay=1" 
+                        src="https://player.bilibili.com/player.html?bvid=${bvid}&page=1&high_quality=1&autoplay=1&muted=0" 
                         allowfullscreen="true" 
+                        allow="autoplay"
                         sandbox="allow-top-navigation allow-same-origin allow-forms allow-scripts allow-popups"
                     ></iframe>
                 `;

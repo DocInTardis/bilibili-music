@@ -10,4 +10,6 @@ public class VideoInfo {
     private String url;
     private String author;
     private String duration;
+    private String tags;  // 新增：视频标签
+    private String description;  // 新增：视频描述（可选）
 }
