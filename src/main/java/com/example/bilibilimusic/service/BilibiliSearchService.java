@@ -11,6 +11,12 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
@@ -25,6 +31,11 @@ public class BilibiliSearchService {
      */
     @Value("${bilibili.headless:true}")
     private boolean headless;
+
+    /**
+     * 用于抓取视频详情页（meta keywords / description）
+     */
+    private final HttpClient httpClient = HttpClient.newHttpClient();
 
     public List<VideoInfo> search(String query, int limit) {
         String encoded = URLEncoder.encode(query, StandardCharsets.UTF_8);
@@ -146,11 +157,68 @@ public class BilibiliSearchService {
                 }
             }
             
+            // 使用 Playwright 进入视频详情页，补充抓取标签和简介
+            enrichVideoDetailsWithPlaywright(playwright, result);
+            
             log.info("最终解析到 {} 个视频", result.size());
         } catch (Exception e) {
             log.error("Playwright 搜索 B 站失败", e);
         }
 
         return result;
+    }
+
+    /**
+     * 使用 Playwright 打开每个视频详情页，提取标题 / 标签 / 简介
+     */
+    private void enrichVideoDetailsWithPlaywright(Playwright playwright, List<VideoInfo> videos) {
+        Browser detailBrowser = null;
+        try {
+            // 详情抓取始终使用 headless 模式，避免打扰用户
+            detailBrowser = playwright.chromium().launch(
+                    new BrowserType.LaunchOptions().setHeadless(true)
+            );
+            for (VideoInfo video : videos) {
+                try {
+                    if (video.getUrl() == null || video.getUrl().isBlank()) {
+                        continue;
+                    }
+                    String url = video.getUrl();
+                    Page detailPage = detailBrowser.newPage();
+                    log.debug("打开视频详情页: {}", url);
+                    detailPage.navigate(url);
+                    detailPage.waitForTimeout(3000);
+
+                    // 1. 标题：优先使用详情页的 <title>
+                    String detailTitle = detailPage.title();
+                    if (detailTitle != null && !detailTitle.isBlank()) {
+                        video.setTitle(detailTitle);
+                    }
+
+                    // 2. 标签：meta[name="keywords"] 或 meta[itemprop="keywords"]
+                    String keywords = detailPage.getAttribute("head meta[name='keywords']", "content");
+                    if (keywords == null || keywords.isBlank()) {
+                        keywords = detailPage.getAttribute("head meta[itemprop='keywords']", "content");
+                    }
+                    if (keywords != null && !keywords.isBlank()) {
+                        video.setTags(keywords);
+                    }
+
+                    // 3. 简介：meta[name="description"]
+                    String description = detailPage.getAttribute("head meta[name='description']", "content");
+                    if (description != null && !description.isBlank()) {
+                        video.setDescription(description);
+                    }
+
+                    detailPage.close();
+                } catch (Exception e) {
+                    log.debug("Playwright 抓取视频详情失败: {} - {}", video.getUrl(), e.getMessage());
+                }
+            }
+        } finally {
+            if (detailBrowser != null) {
+                detailBrowser.close();
+            }
+        }
     }
 }

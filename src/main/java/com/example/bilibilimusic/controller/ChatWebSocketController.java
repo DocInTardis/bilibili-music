@@ -45,6 +45,7 @@ public class ChatWebSocketController {
                         .type("result")
                         .summary(response.getSummary())
                         .videos(response.getVideos())
+                        .trashVideos(response.getTrashVideos())
                         .build();
 
             } catch (Exception e) {

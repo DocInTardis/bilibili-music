@@ -25,16 +25,23 @@ public class RetrievalSkill implements Skill {
     @Override
     public boolean execute(PlaylistContext context) {
         try {
-            log.info("[RetrievalSkill] 开始搜索视频，关键词：{}", context.getIntent().getQuery());
-            context.setCurrentStage(PlaylistContext.Stage.SEARCHING);
+            log.info("[RetrievalSkill] 开始搜索视频，关键词：{}", context.getIntent().getKeywords() != null && !context.getIntent().getKeywords().isEmpty()
+                    ? String.join(" ", context.getIntent().getKeywords())
+                    : context.getIntent().getQuery());
+            context.setCurrentStage(PlaylistContext.Stage.VIDEO_RETRIEVAL);
+            
+            String query = context.getIntent().getQuery();
+            if (context.getIntent().getKeywords() != null && !context.getIntent().getKeywords().isEmpty()) {
+                query = String.join(" ", context.getIntent().getKeywords());
+            }
             
             List<VideoInfo> videos = searchService.search(
-                context.getIntent().getQuery(),
+                query,
                 context.getIntent().getLimit()
             );
             
             context.setSearchResults(videos);
-            context.setCurrentStage(PlaylistContext.Stage.SEARCHED);
+            context.setCurrentStage(PlaylistContext.Stage.VIDEO_JUDGEMENT_LOOP);
             
             log.info("[RetrievalSkill] 搜索完成，找到 {} 个视频", videos.size());
             return !videos.isEmpty();

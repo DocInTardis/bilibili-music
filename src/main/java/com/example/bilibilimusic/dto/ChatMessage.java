@@ -14,12 +14,18 @@ import java.util.List;
 public class ChatMessage {
 
     /**
-     * 消息类型：query（用户查询）、status（状态更新）、result（结果）、error（错误）
+     * 消息类型：
+     * query（用户查询）、
+     * status（阶段状态文本）、
+     * stage_update（阶段认知产物）、
+     * stream_update（视频判断流式反馈）、
+     * result（最终结果）、
+     * error（错误）
      */
     private String type;
 
     /**
-     * 消息内容
+     * 简要文本内容（用于状态或简单描述）
      */
     private String content;
 
@@ -34,7 +40,22 @@ public class ChatMessage {
     private String summary;
 
     /**
-     * 视频列表（仅 result 类型使用）
+     * 视频列表（用于结果或阶段展示）
      */
-    private List<VideoInfo> videos;
+    private java.util.List<VideoInfo> videos;
+
+    /**
+     * 垃圾桶候选视频列表（相关推荐）
+     */
+    private java.util.List<VideoInfo> trashVideos;
+
+    /**
+     * 当前 Agent 状态机阶段
+     */
+    private String stage;
+
+    /**
+     * 阶段的结构化认知产物（前端可视化用）
+     */
+    private java.util.Map<String, Object> payload;
 }

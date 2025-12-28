@@ -485,9 +485,17 @@
             console.log('收到消息:', data);
             if (data.type === 'status') {
                 addStatusMessage(data.content);
+            } else if (data.type === 'stage_update') {
+                renderStageInsight(data.stage, data.payload, data.content);
+            } else if (data.type === 'stream_update') {
+                renderVideoJudgementStream(data.stage, data.payload, data.content);
             } else if (data.type === 'result') {
                 // 更新左侧播放列表
                 updatePlaylist(data.videos, data.summary);
+                // 显示相关推荐（垃圾桶候选）
+                if (data.trashVideos && data.trashVideos.length > 0) {
+                    addRecommendationMessage(data.trashVideos);
+                }
                 // 也在右侧显示总结
                 addAgentMessage(data.summary, data.videos);
             } else if (data.type === 'error') {
@@ -499,25 +507,38 @@
         let currentPlaylist = [];
         let currentVideoIndex = -1;
 
-        // 更新播放列表
+        // 更新播放列表（同一个窗口内多次查询会叠加，新结果在上）
         function updatePlaylist(videos, summary) {
             if (!videos || videos.length === 0) {
                 return;
             }
 
-            currentPlaylist = videos;
+            // 构建去重后的新列表：新结果在前，旧结果在后
+            const existingByUrl = new Map(currentPlaylist.map(v => [v.url, v]));
+            const merged = [];
+
+            videos.forEach(v => {
+                merged.push(v);
+                if (v.url) {
+                    existingByUrl.delete(v.url);
+                }
+            });
+
+            existingByUrl.forEach(v => merged.push(v));
+
+            currentPlaylist = merged;
             currentVideoIndex = -1;
 
             // 更新标题和摘要
             document.getElementById('videoTitle').textContent = summary || '搜索结果';
-            document.getElementById('videoSummary').textContent = `为您找到 ${videos.length} 首相关视频`;
-            document.getElementById('playlistCount').textContent = `共 ${videos.length} 首`;
+            document.getElementById('videoSummary').textContent = `为您找到 ${currentPlaylist.length} 个相关视频`;
+            document.getElementById('playlistCount').textContent = `共 ${currentPlaylist.length} 首`;
 
             // 渲染视频列表
             const videoListContainer = document.getElementById('videoList');
             videoListContainer.innerHTML = '';
 
-            videos.forEach((video, index) => {
+            currentPlaylist.forEach((video, index) => {
                 const card = document.createElement('div');
                 card.className = 'video-card';
                 card.onclick = () => playVideo(index);
@@ -528,8 +549,8 @@
                         ${escapeHtml(video.title)}
                     </div>
                     <div class="video-meta">
-                        <span>👤 ${escapeHtml(video.author)}</span>
-                        <span>⏱️ ${escapeHtml(video.duration)}</span>
+                        <span>👤 ${escapeHtml(video.author || '')}</span>
+                        <span>⏱️ ${escapeHtml(video.duration || '')}</span>
                     </div>
                 `;
                 
@@ -537,7 +558,7 @@
             });
 
             // 自动播放第一个
-            if (videos.length > 0) {
+            if (currentPlaylist.length > 0) {
                 playVideo(0);
             }
         }
@@ -623,6 +644,103 @@
                 <div class="message-avatar">🤖</div>
                 <div class="message-content">
                     <div class="text">${escapeHtml(summary)}</div>
+                </div>
+            `;
+            messagesContainer.appendChild(messageDiv);
+            scrollToBottom();
+        }
+
+        // 添加阶段认知产物展示
+        function renderStageInsight(stage, payload, text) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message';
+            const title = stage || '阶段更新';
+
+            let humanReadable = '';
+            if (stage === 'INTENT_UNDERSTANDING') {
+                humanReadable = `🎯 目标：${payload.targetCount || 10}首歌曲`;
+                if (payload.preference) humanReadable += ` | 风格：${payload.preference}`;
+            } else if (stage === 'KEYWORD_EXTRACTION') {
+                const kw = payload.keywords ? payload.keywords.join(', ') : '';
+                humanReadable = `🔑 关键词：${kw}`;
+            } else if (stage === 'TARGET_EVALUATION') {
+                humanReadable = `✅ 已找到 ${payload.actualCount} 首 / 目标 ${payload.targetCount} 首`;
+                if (!payload.enough) {
+                    humanReadable += ` | 📦 可用候选：${payload.trashCount} 个`;
+                }
+            }
+
+            messageDiv.innerHTML = `
+                <div class="message-avatar">🧠</div>
+                <div class="message-content">
+                    <div class="text"><strong>${escapeHtml(title)}</strong> - ${escapeHtml(text || '')}</div>
+                    ${humanReadable ? `<div style="margin-top:6px;color:#666;font-size:13px;">${escapeHtml(humanReadable)}</div>` : ''}
+                </div>
+            `;
+            messagesContainer.appendChild(messageDiv);
+            scrollToBottom();
+        }
+
+        // 添加单个视频判断的流式反馈
+        function renderVideoJudgementStream(stage, payload, text) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message';
+            const video = payload && payload.video;
+            const progress = payload && payload.progress;
+            const decision = payload && payload.decision;
+            const quantityEstimation = payload && payload.quantityEstimation;
+
+            const title = video ? video.title : '视频判断';
+            const progressText = progress ? `（累计 ${progress.accumulatedCount || 0} 首 / 目标 ${progress.targetCount || '?'} 首）` : '';
+
+            let statusIcon = '🎧';
+            let statusText = '';
+            if (decision) {
+                if (decision.accepted) {
+                    statusIcon = '✅';
+                    statusText = '已加入播放列表';
+                } else {
+                    statusIcon = '❌';
+                    statusText = '相关度低，跳过';
+                }
+            }
+
+            let durationInfo = '';
+            if (video && video.duration) {
+                durationInfo = ` | 时长：${video.duration}`;
+                if (quantityEstimation && quantityEstimation.isPlaylist) {
+                    durationInfo += ' (合集)';
+                }
+            }
+
+            messageDiv.innerHTML = `
+                <div class="message-avatar">${statusIcon}</div>
+                <div class="message-content">
+                    <div class="text"><strong>${escapeHtml(title)}</strong></div>
+                    <div style="margin-top:4px;color:#666;font-size:12px;">
+                        ${statusText}${escapeHtml(progressText)}${escapeHtml(durationInfo)}
+                    </div>
+                </div>
+            `;
+            messagesContainer.appendChild(messageDiv);
+            scrollToBottom();
+
+            // 如果该视频被采纳，则立刻更新播放列表（流式加入）
+            if (decision && decision.accepted && video) {
+                updatePlaylist([video], null);
+            }
+        }
+
+        // 推荐垃圾桶候选
+        function addRecommendationMessage(videos) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message';
+            const items = videos.slice(0, 5).map(v => `• ${v.title} - ${v.author || ''}`).join('\n');
+            messageDiv.innerHTML = `
+                <div class="message-avatar">💡</div>
+                <div class="message-content">
+                    <div class="text">未完全达到目标，下面是一些相关度稍低但可能有用的候选：</div>
+                    <pre style="margin-top:6px;font-size:12px;white-space:pre-wrap;">${escapeHtml(items)}</pre>
                 </div>
             `;
             messagesContainer.appendChild(messageDiv);

@@ -31,11 +31,34 @@ public class KeywordExtractionSkill implements Skill {
             String originalQuery = context.getIntent().getQuery();
             log.info("[KeywordExtractionSkill] 原始查询: {}", originalQuery);
             
-            String extractedKeyword = extractKeyword(originalQuery);
+            String extractedKeyword = extractKeyword(originalQuery, context);
             
             if (extractedKeyword != null && !extractedKeyword.isEmpty()) {
-                context.getIntent().setQuery(extractedKeyword);
-                log.info("[KeywordExtractionSkill] 提取的搜索关键词: {}", extractedKeyword);
+                String cleaned = extractedKeyword.trim();
+                context.getIntent().setQuery(cleaned);
+                
+                // 根据提取结果和原始查询构造紧凑的关键词列表
+                java.util.List<String> keywords = new java.util.ArrayList<>();
+                if (!cleaned.isEmpty()) {
+                    keywords.add(cleaned);
+                    // 针对“夜鹿的歌”这类表达，额外提取出歌手/主题部分
+                    String shortKey = cleaned
+                            .replace("的歌", "")
+                            .replace("的歌曲", "")
+                            .replace("歌曲", "")
+                            .trim();
+                    if (!shortKey.isEmpty() && !shortKey.equals(cleaned)) {
+                        keywords.add(shortKey);
+                    }
+                }
+                // 如果仍然没有关键词，就退回到原始查询
+                if (keywords.isEmpty() && originalQuery != null && !originalQuery.isBlank()) {
+                    keywords.add(originalQuery.trim());
+                }
+                context.setKeywords(keywords);
+                context.getIntent().setKeywords(keywords);
+                
+                log.info("[KeywordExtractionSkill] 提取的搜索关键词: {}", keywords);
                 return true;
             } else {
                 log.warn("[KeywordExtractionSkill] 关键词提取失败,使用原始查询");
@@ -48,7 +71,7 @@ public class KeywordExtractionSkill implements Skill {
         }
     }
     
-    private String extractKeyword(String query) {
+    private String extractKeyword(String query, PlaylistContext context) {
         try {
             Map<String, Object> payload = new HashMap<>();
             payload.put("model", model);
@@ -78,12 +101,21 @@ public class KeywordExtractionSkill implements Skill {
                 log.debug("[KeywordExtractionSkill] LLM 原始输出: {}", content);
                 
                 KeywordResult result = parseKeywordResult(content);
-                if (result != null && result.getKeyword() != null) {
+                if (result != null && result.getKeyword() != null && !result.getKeyword().isBlank()) {
                     log.info("[KeywordExtractionSkill] LLM 理解: {}", result.getReason());
-                    return result.getKeyword();
+                    // 提取关键词
+                    String extractedKeyword = result.getKeyword().trim();
+                    // 提取数量（如果 LLM 给出）
+                    if (result.getCount() != null && result.getCount() > 0) {
+                        context.getIntent().setTargetCount(result.getCount());
+                        log.info("[KeywordExtractionSkill] 提取到数量: {}", result.getCount());
+                    }
+                    return extractedKeyword;
                 }
                 
-                return content.trim().replaceAll("[\"'{}\\[\\]]", "");
+                // 无法解析结构化 JSON 时，不使用整段输出作为关键词，回退为原始查询
+                log.warn("[KeywordExtractionSkill] 无法从 LLM 输出中解析关键词，将回退为原始查询");
+                return query;
             }
             
         } catch (Exception e) {
@@ -95,19 +127,21 @@ public class KeywordExtractionSkill implements Skill {
     
     private String getKeywordExtractionPrompt() {
         return "你是一个关键词提取助手。\n" +
-               "用户会输入一段自然语言,你需要提取其中的核心搜索关键词。\n" +
-               "例如:\n" +
-               "- 输入:帮我找夜鹿的歌 -> 输出:夜鹿\n" +
-               "- 输入:来一份适合学习的纯音乐 -> 输出:纯音乐 学习\n" +
-               "- 输入:搜索周杰伦的歌曲 -> 输出:周杰伦\n" +
+               "用户会输入一段自然语言，你需要提取其中的核心搜索关键词和目标数量。\n" +
+               "例如：\n" +
+               "- 输入：帮我找5首夜鹿的歌 -> 输出: {\"keyword\":\"夜鹿\", \"count\":5}\n" +
+               "- 输入：来一份适合学习的纯音乐 -> 输出: {\"keyword\":\"纯音乐 学习\", \"count\":10}\n" +
+               "- 输入：搜索十首周杰伦的歌曲 -> 输出: {\"keyword\":\"周杰伦\", \"count\":10}\n" +
+               "- 输入：三首古风纯音乐 -> 输出: {\"keyword\":\"古风纯音乐\", \"count\":3}\n" +
                "\n" +
-               "输出格式必须是 JSON:\n" +
+               "输出格式必须是 JSON：\n" +
                "{\n" +
-               "  \"keyword\": \"提取的关键词\",\n" +
+               "  \"keyword\": \"提取的关键词，不包含数量词\",\n" +
+               "  \"count\": 目标数量，如果用户未提到则默认10，中文数字转为阿拉伯数字，请用整数,\n" +
                "  \"reason\": \"提取理由\"\n" +
                "}\n" +
                "\n" +
-               "如果无法确定,直接返回原文。\n" +
+               "如果无法确定，直接返回原文。\n" +
                "不要包含帮我找、搜索、来一份等辅助词。";
     }
     
@@ -134,6 +168,9 @@ public class KeywordExtractionSkill implements Skill {
     private static class KeywordResult {
         @JsonProperty("keyword")
         private String keyword;
+        
+        @JsonProperty("count")
+        private Integer count;
         
         @JsonProperty("reason")
         private String reason;
