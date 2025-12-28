@@ -127,3 +127,38 @@ CREATE TABLE platform_def (
     display_name VARCHAR(64),
     base_url VARCHAR(255)
 );
+
+CREATE TABLE user_video_feedback (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    conversation_id BIGINT NOT NULL COMMENT '在哪个会话下产生的反馈',
+    video_id BIGINT NOT NULL COMMENT '被反馈的视频',
+    feedback_type VARCHAR(32) NOT NULL COMMENT 'LIKE / DISLIKE',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_conv_video (conversation_id, video_id),
+    CONSTRAINT fk_feedback_video
+        FOREIGN KEY (video_id) REFERENCES video(id),
+    CONSTRAINT fk_feedback_conversation
+        FOREIGN KEY (conversation_id) REFERENCES conversation(id)
+) ENGINE=INNODB DEFAULT CHARSET=utf8mb4 COMMENT='用户对视频的显式反馈';
+
+CREATE TABLE music_unit_weight (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    music_unit_id BIGINT NOT NULL COMMENT '歌曲ID',
+    weight_score DOUBLE NOT NULL DEFAULT 0 COMMENT '权重分数',
+    last_updated DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_music (music_unit_id),
+    CONSTRAINT fk_weight_music
+        FOREIGN KEY (music_unit_id) REFERENCES music_unit(id)
+) ENGINE=INNODB DEFAULT CHARSET=utf8mb4 COMMENT='歌曲全局权重';
+
+CREATE TABLE user_tag_preference (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    conversation_id BIGINT NOT NULL COMMENT '会话上下文',
+    tag_code VARCHAR(64) NOT NULL COMMENT '标签编码（STYLE / SCENE）',
+    preference_score DOUBLE NOT NULL DEFAULT 0 COMMENT '偏好权重',
+    last_updated DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_conv_tag (conversation_id, tag_code)
+) ENGINE=INNODB DEFAULT CHARSET=utf8mb4 COMMENT='用户在当前会话下的标签偏好';
+
+ALTER TABLE playlist_item
+ADD COLUMN user_liked BOOLEAN NOT NULL DEFAULT FALSE COMMENT '用户是否在当前会话中喜欢';
