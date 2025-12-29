@@ -2,6 +2,25 @@ spring:
   application:
     name: bilibili-music
 
+  # 数据库配置
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/bilibili?characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai
+    username: root
+    password: 123456
+
+# MyBatis-Plus 配置
+mybatis-plus:
+  configuration:
+    # 开启驼峰命名映射
+    map-underscore-to-camel-case: true
+    # 打印 SQL 日志（生产环境建议关闭）
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+  global-config:
+    db-config:
+      # 主键类型（自增）
+      id-type: auto
+
 ollama:
   base-url: http://localhost:11434
   model: qwen:7b

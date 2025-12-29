@@ -3,6 +3,8 @@ package com.example.bilibilimusic.controller;
 import com.example.bilibilimusic.agent.PlaylistAgent;
 import com.example.bilibilimusic.dto.PlaylistRequest;
 import com.example.bilibilimusic.dto.PlaylistResponse;
+import com.example.bilibilimusic.dto.SavePlaylistRequest;
+import com.example.bilibilimusic.service.DatabaseService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -20,6 +22,7 @@ import org.springframework.web.bind.annotation.*;
 public class PlaylistController {
 
     private final PlaylistAgent playlistAgent;
+    private final DatabaseService databaseService;
 
     @PostMapping
     public ResponseEntity<PlaylistResponse> generate(@Valid @RequestBody PlaylistRequest request) {
@@ -31,5 +34,25 @@ public class PlaylistController {
         });
         
         return ResponseEntity.ok(response);
+    }
+    
+    /**
+     * 增加视频权重（点击爱心按钮）
+     */
+    @PostMapping("/item/{itemId}/like")
+    public ResponseEntity<Void> likeItem(@PathVariable Long itemId) {
+        log.info("[REST API] 增加视频权重: itemId={}", itemId);
+        databaseService.increaseItemWeight(itemId);
+        return ResponseEntity.ok().build();
+    }
+    
+    /**
+     * 保存播放列表并重命名
+     */
+    @PostMapping("/save")
+    public ResponseEntity<Void> savePlaylist(@RequestBody SavePlaylistRequest request) {
+        log.info("[REST API] 保存播放列表: playlistId={}, name={}", request.getPlaylistId(), request.getName());
+        databaseService.savePlaylistWithName(request.getPlaylistId(), request.getName());
+        return ResponseEntity.ok().build();
     }
 }

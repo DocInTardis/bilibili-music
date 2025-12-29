@@ -16,11 +16,13 @@
             height: 100vh;
             overflow: hidden;
             background: #f4f4f5;
+            margin: 0;
+            padding: 0;
         }
 
         .container {
             display: flex;
-            height: 100vh;
+            height: calc(100vh - 70px); /* 留出底部控制栏的空间 */
         }
 
         /* 左侧播放列表 */
@@ -54,6 +56,39 @@
             flex: 1;
             overflow-y: auto;
             padding: 12px;
+        }
+        
+        .playlist-actions {
+            padding: 12px;
+            display: flex;
+            gap: 8px;
+            border-top: 1px solid #e3e5e7;
+            background: #fafafa;
+        }
+        
+        .action-btn {
+            flex: 1;
+            padding: 10px 16px;
+            border: 1px solid #e3e5e7;
+            border-radius: 6px;
+            background: white;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.2s;
+            color: #333;
+        }
+        
+        .action-btn:hover {
+            background: #00a1d6;
+            color: white;
+            border-color: #00a1d6;
+            transform: translateY(-2px);
+            box-shadow: 0 2px 8px rgba(0,161,214,0.3);
+        }
+        
+        .action-btn:active {
+            transform: translateY(0);
         }
 
         .video-card {
@@ -113,6 +148,22 @@
             color: #999;
             display: flex;
             justify-content: space-between;
+            align-items: center;
+        }
+        
+        .love-btn {
+            background: none;
+            border: none;
+            font-size: 16px;
+            cursor: pointer;
+            padding: 4px 8px;
+            transition: all 0.2s;
+            color: #ccc;
+        }
+        
+        .love-btn:hover {
+            transform: scale(1.15);
+            color: #ff4d4d;
         }
 
         /* 中间视频区 */
@@ -189,41 +240,50 @@
             font-size: 14px;
         }
 
-        /* 播放器控制栏 */
-        .player-controls {
-            position: absolute;
-            bottom: 12px;
-            left: 12px;
-            right: 12px;
+        /* 播放器控制栏（固定在页面底部） */
+        .player-controls-bottom {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 70px;
             display: flex;
             align-items: center;
-            gap: 8px;
-            background: rgba(0, 0, 0, 0.7);
-            padding: 8px 12px;
-            border-radius: 6px;
-            pointer-events: auto;
+            justify-content: center;
+            gap: 16px;
+            padding: 0 24px;
+            background: white;
+            border-top: 1px solid #e3e5e7;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+            z-index: 1000;
         }
 
-        .player-controls button,
-        .player-controls select {
-            font-size: 12px;
-            padding: 6px 12px;
-            border-radius: 4px;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            background: rgba(255, 255, 255, 0.9);
+        .player-controls-bottom button,
+        .player-controls-bottom select {
+            font-size: 15px;
+            padding: 12px 24px;
+            border-radius: 8px;
+            border: 1px solid #e3e5e7;
+            background: white;
             cursor: pointer;
             transition: all 0.2s;
+            font-weight: 500;
         }
 
-        .player-controls button:hover,
-        .player-controls select:hover {
-            background: #fff;
+        .player-controls-bottom button:hover,
+        .player-controls-bottom select:hover {
+            background: #f0f0f0;
             border-color: #00a1d6;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,161,214,0.2);
         }
 
-        .player-controls select {
-            flex: 1;
-            max-width: 150px;
+        .player-controls-bottom button:active {
+            transform: translateY(0);
+        }
+
+        .player-controls-bottom select {
+            min-width: 150px;
         }
 
         /* 拖拽样式 */
@@ -260,6 +320,67 @@
         .chat-header p {
             font-size: 13px;
             opacity: 0.9;
+            margin-bottom: 12px;
+        }
+        
+        .new-chat-btn {
+            padding: 6px 12px;
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: 1px solid rgba(255,255,255,0.4);
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        
+        .new-chat-btn:hover {
+            background: rgba(255,255,255,0.3);
+            border-color: rgba(255,255,255,0.6);
+        }
+        
+        .conversation-list {
+            margin-top: 8px;
+            max-height: 120px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        
+        .conversation-item {
+            padding: 8px 12px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.2s;
+        }
+        
+        .conversation-item:hover {
+            background: rgba(255,255,255,0.2);
+        }
+        
+        .conversation-item.active {
+            background: rgba(251,114,153,0.5);
+            font-weight: 600;
+        }
+        
+        .conversation-item .delete-btn {
+            background: none;
+            border: none;
+            color: rgba(255,255,255,0.7);
+            cursor: pointer;
+            padding: 2px 6px;
+            font-size: 14px;
+        }
+        
+        .conversation-item .delete-btn:hover {
+            color: #ff4d4d;
         }
 
         .chat-messages {
@@ -347,6 +468,12 @@
 
         .input-group {
             display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        
+        .input-row {
+            display: flex;
             gap: 8px;
         }
 
@@ -425,6 +552,14 @@
             <div class="playlist-videos" id="videoList">
                 <!-- 视频列表将通过 JS 渲染 -->
             </div>
+            <div class="playlist-actions">
+                <button class="action-btn continue-btn" onclick="continueAdding()" title="继续搜索相似的歌曲">
+                    🎶 继续添加
+                </button>
+                <button class="action-btn save-btn" onclick="savePlaylist()" title="保存当前播放列表">
+                    💾 保存列表
+                </button>
+            </div>
         </div>
 
         <!-- 中间视频区 -->
@@ -439,17 +574,6 @@
                         <div class="icon">🎶</div>
                         <p>暂无视频，请先搜索歌单</p>
                     </div>
-                    <!-- 播放控制栏 -->
-                    <div class="player-controls">
-                        <button id="btnPrev" title="上一首">⏮️ 上一首</button>
-                        <button id="btnPlayPause" title="暂停/播放">⏸️ 暂停</button>
-                        <button id="btnNext" title="下一首">⏭️ 下一首</button>
-                        <select id="playMode" title="播放模式">
-                            <option value="normal">🔁 顺序播放</option>
-                            <option value="shuffle">🔀 随机播放</option>
-                            <option value="repeat-one">🔂 单曲循环</option>
-                        </select>
-                    </div>
                 </div>
             </div>
         </div>
@@ -457,8 +581,16 @@
         <!-- 右侧对话框 -->
         <div class="chat-panel">
             <div class="chat-header">
-                <h2>🎵 Bilibili 音乐助手</h2>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <h2>🎵 Bilibili 音乐助手</h2>
+                    <button class="new-chat-btn" onclick="createNewConversation()" title="新建对话">
+                        ➕ 新对话
+                    </button>
+                </div>
                 <p>告诉我你想要什么样的歌单</p>
+                <div class="conversation-list" id="conversationList">
+                    <!-- 对话列表将通过JS动态加载 -->
+                </div>
             </div>
 
             <div class="chat-messages" id="chatMessages">
@@ -469,15 +601,35 @@
 
             <div class="chat-input-area">
                 <div class="input-group">
-                    <textarea 
-                        id="userInput" 
-                        placeholder="例如：帮我找10首适合学习的纯音乐..."
-                        rows="3"
-                    ></textarea>
-                    <button class="send-btn" id="sendBtn" onclick="sendMessage()">发送</button>
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input type="checkbox" id="highRelevanceMode" style="margin-right: 6px;">
+                            <span style="font-size: 13px;">🎯 高相关度模式</span>
+                        </label>
+                    </div>
+                    <div class="input-row">
+                        <textarea 
+                            id="userInput" 
+                            placeholder="例如：帮我找10首适合学习的纯音乐..."
+                            rows="3"
+                        ></textarea>
+                        <button class="send-btn" id="sendBtn" onclick="sendMessage()">发送</button>
+                    </div>
                 </div>
             </div>
         </div>
+    </div>
+
+    <!-- 播放控制栏（固定在页面底部） -->
+    <div class="player-controls-bottom">
+        <button id="btnPrev" title="上一首" onclick="playPrev()">⏮️ 上一首</button>
+        <button id="btnPlayPause" title="暂停/播放" onclick="togglePlayPause()">⏸️ 暂停</button>
+        <button id="btnNext" title="下一首" onclick="playNext()">⏭️ 下一首</button>
+        <select id="playMode" title="播放模式" onchange="changePlayMode(this.value)">
+            <option value="normal">🔁 顺序播放</option>
+            <option value="shuffle">🔀 随机播放</option>
+            <option value="repeat-one">🔂 单曲循环</option>
+        </select>
     </div>
 
     <!-- 使用本地 WebSocket 客户端库 -->
@@ -544,17 +696,27 @@
                 addStatusMessage(data.content);
             } else if (data.type === 'stage_update') {
                 renderStageInsight(data.stage, data.payload, data.content);
+            } else if (data.type === 'search_results') {
+                // 显示搜索结果概要
+                renderSearchResults(data.payload, data.content);
             } else if (data.type === 'stream_update') {
                 renderVideoJudgementStream(data.stage, data.payload, data.content);
+            } else if (data.type === 'video_accepted') {
+                // 流式接收：立即将采纳的视频加入播放列表
+                if (data.videos && data.videos.length > 0) {
+                    addVideoToPlaylistStreaming(data.videos[0], data.content);
+                }
             } else if (data.type === 'result') {
-                // 更新左侧播放列表
-                updatePlaylist(data.videos, data.summary);
+                // 最终结果（如果有需要的话）
                 // 显示相关推荐（垃圾桶候选）
                 if (data.trashVideos && data.trashVideos.length > 0) {
-                    addRecommendationMessage(data.trashVideos);
+                    const highRelevanceMode = document.getElementById('highRelevanceMode').checked;
+                    addRecommendationMessage(data.trashVideos, highRelevanceMode);
                 }
                 // 也在右侧显示总结
-                addAgentMessage(data.summary, data.videos);
+                if (data.summary) {
+                    addAgentMessage(data.summary, []);
+                }
             } else if (data.type === 'error') {
                 addStatusMessage('❌ ' + data.content);
             }
@@ -568,6 +730,69 @@
         let shufflePos = 0;           // 当前在 shuffleOrder 中的位置
         let dragStartIndex = null;    // 拖动起始索引
         let isPlaying = false;        // 当前播放状态
+
+        // 流式添加视频到播放列表（逐个添加）
+        function addVideoToPlaylistStreaming(video, message) {
+            if (!video) return;
+
+            // 检查是否已存在（去重）
+            const exists = currentPlaylist.some(v => v.url === video.url);
+            if (exists) {
+                console.log('视频已存在，跳过：', video.title);
+                return;
+            }
+
+            // 添加到播放列表
+            currentPlaylist.push(video);
+            const newIndex = currentPlaylist.length - 1;
+
+            // 更新头部信息
+            document.getElementById('videoTitle').textContent = '正在构建播放列表...';
+            document.getElementById('videoSummary').textContent = `已找到 ${currentPlaylist.length} 个相关视频`;
+            document.getElementById('playlistCount').textContent = `共 ${currentPlaylist.length} 首`;
+
+            // 添加视频卡片到列表
+            const videoListContainer = document.getElementById('videoList');
+            const card = document.createElement('div');
+            card.className = 'video-card';
+            card.dataset.index = newIndex;
+            card.draggable = true;
+            card.onclick = () => playVideo(newIndex);
+            
+            // 拖拽事件
+            card.addEventListener('dragstart', handleDragStart);
+            card.addEventListener('dragover', handleDragOver);
+            card.addEventListener('drop', handleDrop);
+            card.addEventListener('dragend', handleDragEnd);
+            
+            card.innerHTML = `
+                <div class="video-title">
+                    <span class="video-index">${newIndex + 1}</span>
+                    ${escapeHtml(video.title)}
+                </div>
+                <div class="video-meta">
+                    <span>👤 ${escapeHtml(video.author || '')}</span>
+                    <span>⏱️ ${escapeHtml(video.duration || '')}</span>
+                    <button class="love-btn" onclick="event.stopPropagation(); likeVideo(${video.itemId || 0}, this)" title="喜欢这首歌">
+                        ❤️
+                    </button>
+                </div>
+            `;
+            
+            videoListContainer.appendChild(card);
+
+            // 如果这是第一个视频，自动播放
+            if (currentPlaylist.length === 1) {
+                playVideo(0);
+            }
+
+            // 在聊天区显示消息
+            if (message) {
+                addStatusMessage('✅ ' + message);
+            }
+
+            console.log('流式添加视频：', video.title, `(总计${currentPlaylist.length}首)`);
+        }
 
         // 更新播放列表（同一个窗口内多次查询会叠加，新结果在上）
         function updatePlaylist(videos, summary) {
@@ -621,6 +846,9 @@
                     <div class="video-meta">
                         <span>👤 ${escapeHtml(video.author || '')}</span>
                         <span>⏱️ ${escapeHtml(video.duration || '')}</span>
+                        <button class="love-btn" onclick="event.stopPropagation(); likeVideo(${video.itemId || 0}, this)" title="喜欢这首歌">
+                            ❤️
+                        </button>
                     </div>
                 `;
                 
@@ -631,6 +859,103 @@
             if (currentPlaylist.length > 0) {
                 playVideo(0);
             }
+        }
+
+        // 点赞视频（增加权重）
+        function likeVideo(itemId, button) {
+            if (!itemId || itemId === 0) {
+                console.warn('itemId 无效，无法点赞');
+                return;
+            }
+            
+            fetch(`/api/playlist/item/${itemId}/like`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'}
+            })
+            .then(response => {
+                if (response.ok) {
+                    // 视觉反馈：变成红色爱心
+                    button.style.color = '#ff4d4d';
+                    button.style.transform = 'scale(1.2)';
+                    setTimeout(() => {
+                        button.style.transform = 'scale(1)';
+                    }, 200);
+                    console.log('点赞成功：itemId=', itemId);
+                } else {
+                    console.error('点赞失败');
+                }
+            })
+            .catch(err => console.error('点赞请求错误：', err));
+        }
+        
+        // 继续添加相似歌曲
+        function continueAdding() {
+            if (currentPlaylist.length === 0) {
+                alert('播放列表为空，请先搜索歌曲');
+                return;
+            }
+            
+            // 提取当前播放列表的特征（使用最常见的歌手/风格）
+            const artists = currentPlaylist.map(v => v.author).filter(a => a);
+            const artistCount = {};
+            artists.forEach(a => {
+                artistCount[a] = (artistCount[a] || 0) + 1;
+            });
+            
+            // 找到出现最多的歌手
+            let mainArtist = '';
+            let maxCount = 0;
+            for (const artist in artistCount) {
+                if (artistCount[artist] > maxCount) {
+                    maxCount = artistCount[artist];
+                    mainArtist = artist;
+                }
+            }
+            
+            const query = mainArtist ? `继续找更多${mainArtist}的歌` : '继续找更多相似的歌';
+            
+            // 在聊天框显示，并发送请求
+            userInput.value = query;
+            sendMessage();
+        }
+        
+        // 保存播放列表
+        function savePlaylist() {
+            if (currentPlaylist.length === 0) {
+                alert('播放列表为空，没有内容可保存');
+                return;
+            }
+            
+            // 生成默认名称：使用日期 + 播放列表数量
+            const now = new Date();
+            const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            const defaultName = `我的歌单 ${dateStr} (${currentPlaylist.length}首)`;
+            
+            const name = prompt('请给你的歌单起个名字：', defaultName);
+            if (!name) {
+                return; // 用户取消
+            }
+            
+            // TODO: 这里需要获取当前playlistId，目前暂时使用模拟值
+            const playlistId = 1; // 实际应该从后端获取
+            
+            fetch('/api/playlist/save', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({playlistId, name})
+            })
+            .then(response => {
+                if (response.ok) {
+                    alert(`✅ 播放列表“${name}”已保存！`);
+                    addStatusMessage(`💾 已保存播放列表：${name}`);
+                } else {
+                    alert('❌ 保存失败，请稍后重试');
+                }
+            })
+            .catch(err => {
+                console.error('保存请求错误：', err);
+                alert('❌ 保存失败，请检查网络连接');
+            });
         }
 
         // 播放指定视频
@@ -665,18 +990,13 @@
                         allow="autoplay"
                         sandbox="allow-top-navigation allow-same-origin allow-forms allow-scripts allow-popups"
                     ></iframe>
-                    <!-- 播放控制栏 -->
-                    <div class="player-controls">
-                        <button id="btnPrev" title="上一首" onclick="playPrev()">⏮️ 上一首</button>
-                        <button id="btnPlayPause" title="暂停/播放" onclick="togglePlayPause()">⏸️ 暂停</button>
-                        <button id="btnNext" title="下一首" onclick="playNext()">⏭️ 下一首</button>
-                        <select id="playMode" title="播放模式" onchange="changePlayMode(this.value)">
-                            <option value="normal" ${playMode === 'normal' ? 'selected' : ''}>🔁 顺序播放</option>
-                            <option value="shuffle" ${playMode === 'shuffle' ? 'selected' : ''}>🔀 随机播放</option>
-                            <option value="repeat-one" ${playMode === 'repeat-one' ? 'selected' : ''}>🔂 单曲循环</option>
-                        </select>
-                    </div>
                 `;
+                
+                // 更新外部控制栏的播放模式选择器
+                const playModeSelect = document.getElementById('playMode');
+                if (playModeSelect) {
+                    playModeSelect.value = playMode;
+                }
             } else {
                 console.warn('无法解析视频 URL:', video.url);
             }
@@ -764,6 +1084,37 @@
             scrollToBottom();
         }
 
+        // 显示搜索结果概要
+        function renderSearchResults(payload, content) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message';
+            
+            const totalCount = payload && payload.totalCount ? payload.totalCount : 0;
+            const samples = payload && payload.samples ? payload.samples : [];
+            
+            let samplesHtml = '';
+            if (samples.length > 0) {
+                const sampleList = samples.map((v, idx) => 
+                    `${idx + 1}. ${escapeHtml(v.title)} - ${escapeHtml(v.author || '')} (${escapeHtml(v.duration || '')})`
+                ).join('\n');
+                samplesHtml = `<pre style="margin-top:8px;font-size:12px;white-space:pre-wrap;color:#555;">${sampleList}</pre>`;
+            }
+            
+            messageDiv.innerHTML = `
+                <div class="message-avatar">🔍</div>
+                <div class="message-content">
+                    <div class="text"><strong>搜索完成</strong></div>
+                    <div style="margin-top:6px;color:#666;font-size:13px;">
+                        📦 找到 <strong>${totalCount}</strong> 个视频，正在逐个判断相关度...
+                    </div>
+                    ${samplesHtml}
+                    ${totalCount > 5 ? '<div style="margin-top:4px;font-size:11px;color:#999;">（显示前5个，更多视频正在判断中...）</div>' : ''}
+                </div>
+            `;
+            messagesContainer.appendChild(messageDiv);
+            scrollToBottom();
+        }
+
         // 添加单个视频判断的流式反馈
         function renderVideoJudgementStream(stage, payload, text) {
             const messageDiv = document.createElement('div');
@@ -807,27 +1158,70 @@
             `;
             messagesContainer.appendChild(messageDiv);
             scrollToBottom();
-
-            // 如果该视频被采纳，则立刻更新播放列表（流式加入）
-            if (decision && decision.accepted && video) {
-                updatePlaylist([video], null);
-            }
         }
 
         // 推荐垃圾桶候选
-        function addRecommendationMessage(videos) {
+        function addRecommendationMessage(videos, highRelevanceMode) {
             const messageDiv = document.createElement('div');
             messageDiv.className = 'message';
             const items = videos.slice(0, 5).map(v => `• ${v.title} - ${v.author || ''}`).join('\n');
-            messageDiv.innerHTML = `
-                <div class="message-avatar">💡</div>
-                <div class="message-content">
-                    <div class="text">未完全达到目标，下面是一些相关度稍低但可能有用的候选：</div>
-                    <pre style="margin-top:6px;font-size:12px;white-space:pre-wrap;">${escapeHtml(items)}</pre>
-                </div>
-            `;
-            messagesContainer.appendChild(messageDiv);
-            scrollToBottom();
+            
+            // 如果是高相关度模式，显示接受按钮；否则自动加入
+            if (highRelevanceMode) {
+                // 高相关度模式：需要手动接受
+                const buttonId = 'acceptBtn_' + Date.now();
+                messageDiv.innerHTML = `
+                    <div class="message-avatar">💡</div>
+                    <div class="message-content">
+                        <div class="text">未完全达到目标，下面是一些相关度稍低但可能有用的候选：</div>
+                        <pre style="margin-top:6px;font-size:12px;white-space:pre-wrap;">${escapeHtml(items)}</pre>
+                        <button id="${buttonId}" style="margin-top:10px;padding:8px 16px;background:#4CAF50;color:white;border:none;border-radius:4px;cursor:pointer;font-size:13px;">
+                            ✓ 接受这些推荐
+                        </button>
+                    </div>
+                `;
+                messagesContainer.appendChild(messageDiv);
+                scrollToBottom();
+                
+                // 绑定按钮点击事件
+                setTimeout(() => {
+                    const btn = document.getElementById(buttonId);
+                    if (btn) {
+                        btn.onclick = () => {
+                            acceptRecommendations(videos);
+                            btn.disabled = true;
+                            btn.textContent = '✓ 已接受';
+                            btn.style.background = '#999';
+                        };
+                    }
+                }, 100);
+            } else {
+                // 非高相关度模式：自动加入
+                messageDiv.innerHTML = `
+                    <div class="message-avatar">💡</div>
+                    <div class="message-content">
+                        <div class="text">未完全达到目标，自动将相关推荐加入播放列表：</div>
+                        <pre style="margin-top:6px;font-size:12px;white-space:pre-wrap;">${escapeHtml(items)}</pre>
+                        <div style="margin-top:8px;color:#4CAF50;font-size:12px;">✓ 已自动添加到播放列表</div>
+                    </div>
+                `;
+                messagesContainer.appendChild(messageDiv);
+                scrollToBottom();
+                
+                // 自动加入播放列表
+                acceptRecommendations(videos);
+            }
+        }
+        
+        // 接受推荐视频并加入播放列表
+        function acceptRecommendations(videos) {
+            if (!videos || videos.length === 0) return;
+            
+            videos.forEach(video => {
+                addVideoToPlaylistStreaming(video, null);
+            });
+            
+            addStatusMessage(`✅ 已添加 ${videos.length} 个推荐视频到播放列表`);
         }
 
         // 添加状态消息
@@ -1034,6 +1428,9 @@
                     <div class="video-meta">
                         <span>👤 ${escapeHtml(video.author || '')}</span>
                         <span>⏱️ ${escapeHtml(video.duration || '')}</span>
+                        <button class="love-btn" onclick="event.stopPropagation(); likeVideo(${video.itemId || 0}, this)" title="喜欢这首歌">
+                            ❤️
+                        </button>
                     </div>
                 `;
                 
@@ -1048,10 +1445,139 @@
                 sendMessage();
             }
         });
+        
+        // 对话窗口管理
+        let currentConversationId = null;
+        let conversations = [];
+        
+        // 加载所有对话窗口
+        function loadConversations() {
+            fetch('/api/conversations')
+                .then(response => response.json())
+                .then(data => {
+                    conversations = data;
+                    renderConversations();
+                    // 找到当前ACTIVE的对话
+                    const activeConv = conversations.find(c => c.status === 'ACTIVE');
+                    if (activeConv) {
+                        currentConversationId = activeConv.id;
+                    }
+                })
+                .catch(err => console.error('加载对话窗口失败：', err));
+        }
+        
+        // 渲染对话窗口列表
+        function renderConversations() {
+            const conversationList = document.getElementById('conversationList');
+            if (conversations.length === 0) {
+                conversationList.innerHTML = '<div style="color: rgba(255,255,255,0.6); font-size: 11px; text-align: center;">暂无对话，点击“新对话”开始</div>';
+                return;
+            }
+            
+            conversationList.innerHTML = '';
+            conversations.forEach(conv => {
+                const item = document.createElement('div');
+                item.className = 'conversation-item';
+                if (conv.id === currentConversationId) {
+                    item.classList.add('active');
+                }
+                
+                const createdAt = new Date(conv.createdAt);
+                const timeStr = `${createdAt.getMonth() + 1}/${createdAt.getDate()} ${String(createdAt.getHours()).padStart(2, '0')}:${String(createdAt.getMinutes()).padStart(2, '0')}`;
+                
+                item.innerHTML = `
+                    <span onclick="switchConversation(${conv.id})">ID:${conv.id} - ${timeStr}</span>
+                    <button class="delete-btn" onclick="event.stopPropagation(); deleteConversation(${conv.id})" title="删除对话">❌</button>
+                `;
+                
+                conversationList.appendChild(item);
+            });
+        }
+        
+        // 创建新对话窗口
+        function createNewConversation() {
+            fetch('/api/conversations', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name: '新对话'})
+            })
+            .then(response => response.json())
+            .then(conv => {
+                currentConversationId = conv.id;
+                // 清空播放列表和聊天记录
+                currentPlaylist = [];
+                currentVideoIndex = -1;
+                document.getElementById('videoList').innerHTML = '';
+                document.getElementById('playlistCount').textContent = '暂无视频';
+                document.getElementById('chatMessages').innerHTML = '<div class="status-message">新对话已创建，请输入你的音乐需求</div>';
+                
+                // 重新加载对话列表
+                loadConversations();
+                addStatusMessage('✨ 已创建新对话！');
+            })
+            .catch(err => {
+                console.error('创建对话失败：', err);
+                alert('❌ 创建对话失败');
+            });
+        }
+        
+        // 切换对话窗口
+        function switchConversation(conversationId) {
+            if (conversationId === currentConversationId) {
+                return; // 已经是当前对话
+            }
+            
+            fetch(`/api/conversations/${conversationId}/switch`, {
+                method: 'PUT'
+            })
+            .then(() => {
+                currentConversationId = conversationId;
+                // 清空播放列表和聊天记录（实际应该加载对话的历史数据）
+                currentPlaylist = [];
+                currentVideoIndex = -1;
+                document.getElementById('videoList').innerHTML = '';
+                document.getElementById('playlistCount').textContent = '暂无视频';
+                document.getElementById('chatMessages').innerHTML = '<div class="status-message">已切换到对话 ID:' + conversationId + '</div>';
+                
+                // 重新渲染对话列表
+                renderConversations();
+                addStatusMessage(`🔄 已切换到对话 ID:${conversationId}`);
+            })
+            .catch(err => {
+                console.error('切换对话失败：', err);
+                alert('❌ 切换对话失败');
+            });
+        }
+        
+        // 删除对话窗口
+        function deleteConversation(conversationId) {
+            if (!confirm('确定要删除这个对话吗？')) {
+                return;
+            }
+            
+            fetch(`/api/conversations/${conversationId}`, {
+                method: 'DELETE'
+            })
+            .then(() => {
+                if (conversationId === currentConversationId) {
+                    // 如果删除的是当前对话，创建新对话
+                    createNewConversation();
+                } else {
+                    // 只是删除，重新加载列表
+                    loadConversations();
+                }
+                addStatusMessage('🗑️ 对话已删除');
+            })
+            .catch(err => {
+                console.error('删除对话失败：', err);
+                alert('❌ 删除对话失败');
+            });
+        }
 
-        // 页面加载时连接 WebSocket
+        // 页面加载时连接 WebSocket 和加载对话窗口
         window.addEventListener('load', () => {
             connectWebSocket();
+            loadConversations();
         });
     </script>
 </body>

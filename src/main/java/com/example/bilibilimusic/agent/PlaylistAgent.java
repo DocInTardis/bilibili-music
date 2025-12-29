@@ -6,6 +6,10 @@ import com.example.bilibilimusic.dto.PlaylistRequest;
 import com.example.bilibilimusic.dto.PlaylistResponse;
 import com.example.bilibilimusic.dto.VideoInfo;
 import com.example.bilibilimusic.dto.MusicUnit;
+import com.example.bilibilimusic.entity.Conversation;
+import com.example.bilibilimusic.entity.Playlist;
+import com.example.bilibilimusic.entity.Video;
+import com.example.bilibilimusic.service.DatabaseService;
 import com.example.bilibilimusic.skill.CurationSkill;
 import com.example.bilibilimusic.skill.KeywordExtractionSkill;
 import com.example.bilibilimusic.skill.RetrievalSkill;
@@ -45,6 +49,11 @@ public class PlaylistAgent {
     private final CurationSkill curationSkill;
     private final SummarySkill summarySkill;
     private final SimpMessagingTemplate messagingTemplate;
+    private final DatabaseService databaseService;
+    
+    // 存储当前会话和播放列表ID（用于数据库持久化）
+    private Long currentConversationId;
+    private Long currentPlaylistId;
     
     /**
      * 执行歌单生成任务
@@ -57,6 +66,21 @@ public class PlaylistAgent {
         log.info("[PlaylistAgent] 开始执行任务");
         log.info("[PlaylistAgent] 用户输入：{}", request.getQuery());
         log.info("=".repeat(60));
+        
+        // 0. 创建或获取当前活跃会话，并创建播放列表
+        Conversation conversation = databaseService.getOrCreateActiveConversation();
+        currentConversationId = conversation.getId();
+        
+        // 未指定数量时，targetCount为0表示不限制（返回所有搜索结果）
+        int targetCount = request.getLimit();
+        Playlist playlist = databaseService.createPlaylist(
+            currentConversationId, 
+            request.getQuery(), 
+            targetCount
+        );
+        currentPlaylistId = playlist.getId();
+        
+        log.info("[Database] 会话ID: {}, 播放列表ID: {}", currentConversationId, currentPlaylistId);
         
         // 1. 初始化 Context
         PlaylistContext context = initContext(request);
@@ -93,6 +117,9 @@ public class PlaylistAgent {
             log.debug("  - {} | {} | {}", v.getTitle(), v.getAuthor(), v.getDuration())
         );
         
+        // 发送搜索结果通知给前端
+        pushSearchResultsUpdate(context);
+        
         // 4. 阶段三：视频判断循环（替代整体筛选）
         log.info("[Stage 3/4] 视频逐个判断循环");
         statusCallback.accept("🎵 正在逐个判断哪些视频适合加入歌单...");
@@ -111,6 +138,16 @@ public class PlaylistAgent {
         log.info("=".repeat(60));
         statusCallback.accept("✅ 歌单生成完成");
         
+        // 更新播放列表状态
+        if (currentPlaylistId != null) {
+            int playlistTargetCount = context.getIntent().getTargetCount();
+            int actualCount = context.getMusicUnits().size();
+            boolean isPartial = playlistTargetCount > 0 && actualCount < playlistTargetCount;
+            
+            databaseService.finishPlaylist(currentPlaylistId, isPartial);
+            log.info("[Database] 播放列表状态已更新: {}", isPartial ? "PARTIAL" : "DONE");
+        }
+        
         // 6. 构建响应
         return buildResponse(context);
     }
@@ -121,8 +158,10 @@ public class PlaylistAgent {
     private PlaylistContext initContext(PlaylistRequest request) {
         PlaylistContext context = new PlaylistContext();
         
-        int targetCount = request.getLimit() > 0 ? request.getLimit() : 10;
-        int videoLimit = Math.max(targetCount * 2, 20);
+        // targetCount = 0 表示不限制数量，返回所有搜索结果
+        int targetCount = request.getLimit();
+        // 搜索视频数量：有目标时 *2，无目标时默认搜索50个
+        int videoLimit = targetCount > 0 ? Math.max(targetCount * 2, 20) : 50;
 
         UserIntent intent = UserIntent.builder()
             .query(request.getQuery())
@@ -147,31 +186,57 @@ public class PlaylistAgent {
             return;
         }
 
-        // 按优先级排序：1.非合集优先  2.3-5分钟视频权重最高，偏离此区间权重降低
+        final UserIntent intent = context.getIntent(); // 为lambda表达式中使用
+
+        // 按优先级排序：
+        // 1. 非合集优先
+        // 2. 精准匹配优先（单个艺人优于多个艺人合唱）
+        // 3. 3-5分钟视频权重最高
+        // 4. 播放量高的优先
+        // 5. 评论数高的优先
         videos.sort((v1, v2) -> {
-            int duration1 = parseDurationToSeconds(v1.getDuration());
-            int duration2 = parseDurationToSeconds(v2.getDuration());
             boolean isPlaylist1 = isPlaylistStyle(v1);
             boolean isPlaylist2 = isPlaylistStyle(v2);
 
-            // 先比较是否为合集：非合集优先
+            // 第一优先级：非合集优先
             if (isPlaylist1 != isPlaylist2) {
                 return isPlaylist1 ? 1 : -1;
             }
             
-            // 计算距离最优时长区间（3-5分钟 = 180-300秒）的偏离度
+            // 第二优先级：精准匹配度（关键词匹配数量）
+            int matchScore1 = calculateKeywordMatchScore(v1, intent);
+            int matchScore2 = calculateKeywordMatchScore(v2, intent);
+            if (matchScore1 != matchScore2) {
+                return Integer.compare(matchScore2, matchScore1); // 匹配度高的在前
+            }
+            
+            // 第三优先级：时长偏离度（3-5分钟最优）
+            int duration1 = parseDurationToSeconds(v1.getDuration());
+            int duration2 = parseDurationToSeconds(v2.getDuration());
             int optimalMin = 180; // 3分钟
             int optimalMax = 300; // 5分钟
-            
             int deviation1 = calculateDeviationFromOptimal(duration1, optimalMin, optimalMax);
             int deviation2 = calculateDeviationFromOptimal(duration2, optimalMin, optimalMax);
+            int deviationComp = Integer.compare(deviation1, deviation2);
+            if (deviationComp != 0) {
+                return deviationComp; // 偏离度小的在前
+            }
             
-            // 偏离度小的排在前面（即更接近3-5分钟的视频优先）
-            return Integer.compare(deviation1, deviation2);
+            // 第四优先级：播放量（高的在前）
+            Long play1 = v1.getPlayCount() != null ? v1.getPlayCount() : 0L;
+            Long play2 = v2.getPlayCount() != null ? v2.getPlayCount() : 0L;
+            int playComp = Long.compare(play2, play1); // 播放量高的在前
+            if (playComp != 0) {
+                return playComp;
+            }
+            
+            // 第五优先级：评论数（高的在前）
+            Long comment1 = v1.getCommentCount() != null ? v1.getCommentCount() : 0L;
+            Long comment2 = v2.getCommentCount() != null ? v2.getCommentCount() : 0L;
+            return Long.compare(comment2, comment1); // 评论数高的在前
         });
 
-        UserIntent intent = context.getIntent();
-        int targetCount = intent.getTargetCount() > 0 ? intent.getTargetCount() : intent.getLimit();
+        int targetCount = intent.getTargetCount();
         int accumulatedCount = 0;
 
         context.setCurrentStage(PlaylistContext.Stage.VIDEO_JUDGEMENT_LOOP);
@@ -226,6 +291,9 @@ public class PlaylistAgent {
                 context.getMusicUnits().add(unit);
                 context.getSelectedVideos().add(video);
                 accumulatedCount += estimatedCount;
+                
+                // 流式发送：立即将采纳的视频发送给前端，让用户可以即刻播放
+                sendVideoAccepted(video, accumulatedCount, targetCount);
             } else {
                 context.getTrashVideos().add(video);
             }
@@ -249,6 +317,7 @@ public class PlaylistAgent {
 
             sendStreamUpdate("VIDEO_JUDGEMENT_LOOP", "已评估一个视频", video, contentAnalysis, quantityEstimation, decisionInfo, progress);
 
+            // targetCount = 0 表示不限制数量，继续处理所有视频
             if (targetCount > 0 && accumulatedCount >= targetCount) {
                 break;
             }
@@ -257,7 +326,8 @@ public class PlaylistAgent {
         // 目标评估阶段
         context.setCurrentStage(PlaylistContext.Stage.TARGET_EVALUATION);
         int finalCount = accumulatedCount;
-        boolean enough = targetCount > 0 && finalCount >= targetCount;
+        // targetCount = 0 表示不限制，这时认为已满足
+        boolean enough = (targetCount == 0 && finalCount > 0) || (targetCount > 0 && finalCount >= targetCount);
 
         java.util.Map<String, Object> evalPayload = new java.util.HashMap<>();
         evalPayload.put("targetCount", targetCount);
@@ -268,7 +338,9 @@ public class PlaylistAgent {
         com.example.bilibilimusic.dto.ChatMessage evalMsg = com.example.bilibilimusic.dto.ChatMessage.builder()
             .type("stage_update")
             .stage("TARGET_EVALUATION")
-            .content(enough ? "已基本满足目标数量" : "未完全达到目标数量，将返回部分结果和相关推荐")
+            .content(enough 
+                ? (targetCount == 0 ? "已返回所有搜索结果" : "已基本满足目标数量") 
+                : "未完全达到目标数量，将返回部分结果和相关推荐")
             .payload(evalPayload)
             .build();
         messagingTemplate.convertAndSend("/topic/messages", evalMsg);
@@ -277,7 +349,10 @@ public class PlaylistAgent {
             context.setCurrentStage(PlaylistContext.Stage.PARTIAL_RESULT);
             context.setSelectionReason(String.format("仅找到约 %d 首，未达到目标 %d 首，已返回部分结果和相关推荐。", finalCount, targetCount));
         } else {
-            context.setSelectionReason(String.format("基于视频标题和时长估算，共收集约 %d 首歌曲，满足你的需求。", finalCount));
+            String reason = targetCount == 0 
+                ? String.format("基于视频标题和时长估算，共收集约 %d 首歌曲。", finalCount)
+                : String.format("基于视频标题和时长估算，共收集约 %d 首歌曲，满足你的需求。", finalCount);
+            context.setSelectionReason(reason);
         }
     }
 
@@ -309,11 +384,42 @@ public class PlaylistAgent {
         java.util.Map<String, Object> payload = new java.util.HashMap<>();
         payload.put("keywords", intent.getKeywords());
         payload.put("effectiveQuery", intent.getQuery());
-
+    
         com.example.bilibilimusic.dto.ChatMessage msg = com.example.bilibilimusic.dto.ChatMessage.builder()
             .type("stage_update")
             .stage("KEYWORD_EXTRACTION")
             .content("已将你的需求拆解为可搜索的关键词")
+            .payload(payload)
+            .build();
+        messagingTemplate.convertAndSend("/topic/messages", msg);
+    }
+    
+    /**
+     * 将搜索结果推送给前端
+     */
+    private void pushSearchResultsUpdate(PlaylistContext context) {
+        java.util.List<VideoInfo> videos = context.getSearchResults();
+        java.util.Map<String, Object> payload = new java.util.HashMap<>();
+        payload.put("totalCount", videos != null ? videos.size() : 0);
+            
+        // 发送前5个视频的简要信息
+        if (videos != null && !videos.isEmpty()) {
+            java.util.List<java.util.Map<String, String>> videoSummaries = new java.util.ArrayList<>();
+            for (int i = 0; i < Math.min(5, videos.size()); i++) {
+                VideoInfo v = videos.get(i);
+                java.util.Map<String, String> summary = new java.util.HashMap<>();
+                summary.put("title", v.getTitle());
+                summary.put("author", v.getAuthor());
+                summary.put("duration", v.getDuration());
+                videoSummaries.add(summary);
+            }
+            payload.put("samples", videoSummaries);
+        }
+    
+        com.example.bilibilimusic.dto.ChatMessage msg = com.example.bilibilimusic.dto.ChatMessage.builder()
+            .type("search_results")
+            .stage("VIDEO_RETRIEVAL")
+            .content(String.format("🔍 搜索到 %d 个视频，正在逐个判断...", videos != null ? videos.size() : 0))
             .payload(payload)
             .build();
         messagingTemplate.convertAndSend("/topic/messages", msg);
@@ -361,6 +467,53 @@ public class PlaylistAgent {
             .payload(payload)
             .build();
         messagingTemplate.convertAndSend("/topic/messages", msg);
+    }
+
+    /**
+     * 流式发送：立即将采纳的视频发送给前端，供即刻播放
+     */
+    private void sendVideoAccepted(VideoInfo video, int accumulatedCount, int targetCount) {
+        // 构建视频列表（只包含当前这一个视频）
+        java.util.List<VideoInfo> videoList = java.util.Collections.singletonList(video);
+        
+        // 构建摘要
+        String summary = String.format("已添加：%s - %s（第%d首）", 
+            video.getTitle(), 
+            video.getAuthor() != null ? video.getAuthor() : "未知",
+            accumulatedCount);
+        
+        // 数据库持久化：保存视频和歌曲到播放列表
+        try {
+            // 1. 保存或更新视频信息
+            Video videoEntity = databaseService.saveOrUpdateVideo(video);
+            
+            if (videoEntity != null && currentPlaylistId != null) {
+                // 2. 添加到播放列表
+                databaseService.addMusicToPlaylist(
+                    currentPlaylistId,
+                    video.getTitle(),
+                    video.getAuthor() != null ? video.getAuthor() : "未知",
+                    videoEntity,
+                    summary, // 使用摘要作为加入原因
+                    accumulatedCount // 位置
+                );
+                log.debug("[Database] 已保存视频到数据库: {} - {}", video.getTitle(), video.getAuthor());
+            }
+        } catch (Exception e) {
+            log.error("[Database] 保存视频到数据库失败: {}", e.getMessage(), e);
+        }
+        
+        // 发送流式结果
+        com.example.bilibilimusic.dto.ChatMessage msg = com.example.bilibilimusic.dto.ChatMessage.builder()
+            .type("video_accepted")
+            .content(summary)
+            .videos(videoList)
+            .build();
+        
+        messagingTemplate.convertAndSend("/topic/messages", msg);
+        
+        log.info("[流式发送] 立即发送视频：{} - {} （{}/{})", 
+            video.getTitle(), video.getAuthor(), accumulatedCount, targetCount);
     }
 
     /**
@@ -461,19 +614,49 @@ public class PlaylistAgent {
     }
 
     /**
-     * 构建响应
+     * 计算关键词匹配分数（用于精准匹配判断）
+     * 如果用户要求的是"A的歌"，那么只包含"A"的视频优于包含"A和B"的视频
+     * 返回匹配到的关键词数量，同时判断是否有"与"/"feat"/"ft"等合作标志
      */
-    private PlaylistResponse buildResponse(PlaylistContext context) {
-        // 将 MusicUnit 中的来源视频去重后返回给前端，保持接口兼容
-        java.util.LinkedHashMap<String, VideoInfo> uniqueVideos = new java.util.LinkedHashMap<>();
-        for (MusicUnit unit : context.getMusicUnits()) {
-            if (unit.getSourceVideo() != null && unit.getSourceVideo().getUrl() != null) {
-                uniqueVideos.putIfAbsent(unit.getSourceVideo().getUrl(), unit.getSourceVideo());
+    private int calculateKeywordMatchScore(VideoInfo video, UserIntent intent) {
+        StringBuilder sb = new StringBuilder();
+        if (video.getTitle() != null) sb.append(video.getTitle()).append(' ');
+        if (video.getAuthor() != null) sb.append(video.getAuthor()).append(' ');
+        if (video.getTags() != null) sb.append(video.getTags()).append(' ');
+        String haystack = sb.toString().toLowerCase();
+
+        java.util.List<String> kws = intent.getKeywords();
+        if (kws == null || kws.isEmpty()) {
+            return 0;
+        }
+
+        int matchCount = 0;
+        for (String k : kws) {
+            if (k == null || k.isBlank()) continue;
+            if (haystack.contains(k.toLowerCase())) {
+                matchCount++;
             }
         }
 
+        // 如果标题或作者中包含合作标志，降低分数（让单个艺人的作品优先）
+        boolean hasCollaboration = haystack.contains("与") || 
+                                   haystack.contains("feat") || 
+                                   haystack.contains("ft.") ||
+                                   haystack.contains("+") ||
+                                   haystack.contains("&") ||
+                                   haystack.contains("x ");
+        
+        // 如果有合作标志，分数减少，让单个艺人的作品排在前面
+        return hasCollaboration ? matchCount - 1 : matchCount;
+    }
+
+    /**
+     * 构建响应（流式模式下只返回摘要和垃圾桶候选，不返回视频列表）
+     */
+    private PlaylistResponse buildResponse(PlaylistContext context) {
+        // 流式模式：视频已经通过 WebSocket 逐个发送，这里只返回空列表
         return PlaylistResponse.builder()
-            .videos(new java.util.ArrayList<>(uniqueVideos.values()))
+            .videos(Collections.emptyList())  // 不再返回视频列表
             .summary(context.getSummary())
             .trashVideos(context.getTrashVideos())
             .mp3Files(Collections.emptyList())

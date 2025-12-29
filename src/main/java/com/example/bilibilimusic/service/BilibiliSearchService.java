@@ -210,6 +210,18 @@ public class BilibiliSearchService {
                         video.setDescription(description);
                     }
 
+                    // 4. 播放量：尝试从页面中提取
+                    Long playCount = extractPlayCount(detailPage);
+                    if (playCount != null) {
+                        video.setPlayCount(playCount);
+                    }
+
+                    // 5. 评论数：尝试从页面中提取
+                    Long commentCount = extractCommentCount(detailPage);
+                    if (commentCount != null) {
+                        video.setCommentCount(commentCount);
+                    }
+
                     detailPage.close();
                 } catch (Exception e) {
                     log.debug("Playwright 抓取视频详情失败: {} - {}", video.getUrl(), e.getMessage());
@@ -219,6 +231,109 @@ public class BilibiliSearchService {
             if (detailBrowser != null) {
                 detailBrowser.close();
             }
+        }
+    }
+
+    /**
+     * 从视频详情页提取播放量
+     */
+    private Long extractPlayCount(Page page) {
+        try {
+            // B站播放量可能在多个位置，尝试多种选择器
+            ElementHandle playElement = page.querySelector(".view-text");
+            if (playElement == null) {
+                playElement = page.querySelector(".view-count");
+            }
+            if (playElement == null) {
+                playElement = page.querySelector("[class*='view']");
+            }
+            
+            if (playElement != null) {
+                String text = playElement.innerText().trim();
+                return parseCountText(text);
+            }
+            
+            // 备用：使用 XPath 在 info 分区找包含 "播放" 的文本
+            List<ElementHandle> spans = page.querySelectorAll(".video-info-detail span, .video-data span");
+            for (ElementHandle span : spans) {
+                String text = span.innerText().trim();
+                if (text.contains("播放") || text.contains("观看")) {
+                    // 提取数字部分
+                    String nextText = text.replaceAll("[^0-9万亿]", "");
+                    if (!nextText.isEmpty()) {
+                        return parseCountText(nextText);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("提取播放量失败: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * 从视频详情页提取评论数
+     */
+    private Long extractCommentCount(Page page) {
+        try {
+            // B站评论数可能在多个位置
+            ElementHandle commentElement = page.querySelector(".reply-count");
+            if (commentElement == null) {
+                commentElement = page.querySelector(".comment-count");
+            }
+            if (commentElement == null) {
+                commentElement = page.querySelector("[class*='comment']");
+            }
+            
+            if (commentElement != null) {
+                String text = commentElement.innerText().trim();
+                return parseCountText(text);
+            }
+            
+            // 备用：在 info 分区找包含 "评论" 或 "弹幕" 的文本
+            List<ElementHandle> spans = page.querySelectorAll(".video-info-detail span, .video-data span");
+            for (ElementHandle span : spans) {
+                String text = span.innerText().trim();
+                if (text.contains("评论")) {
+                    String nextText = text.replaceAll("[^0-9万亿]", "");
+                    if (!nextText.isEmpty()) {
+                        return parseCountText(nextText);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("提取评论数失败: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * 解析数量文本（支持 "1.2万"、"3.5亿" 等格式）
+     */
+    private Long parseCountText(String text) {
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        
+        try {
+            text = text.trim().replaceAll("[,\\s]+", "");
+            
+            // 处理 "万" 和 "亿"
+            if (text.contains("亿")) {
+                String numPart = text.replace("亿", "");
+                double num = Double.parseDouble(numPart);
+                return (long) (num * 100_000_000);
+            } else if (text.contains("万")) {
+                String numPart = text.replace("万", "");
+                double num = Double.parseDouble(numPart);
+                return (long) (num * 10_000);
+            } else {
+                // 直接解析数字
+                return Long.parseLong(text);
+            }
+        } catch (Exception e) {
+            log.debug("解析数量文本失败: {} - {}", text, e.getMessage());
+            return null;
         }
     }
 }
