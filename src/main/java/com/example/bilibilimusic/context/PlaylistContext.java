@@ -3,9 +3,6 @@ package com.example.bilibilimusic.context;
 import com.example.bilibilimusic.dto.VideoInfo;
 import lombok.Data;
 
-import java.util.ArrayList;
-import java.util.List;
-
 /**
  * Agent 上下文 - 管理歌单生成过程中的状态与数据
  * 这是 Agent 的"短期记忆"
@@ -17,6 +14,16 @@ public class PlaylistContext {
      * 用户意图
      */
     private UserIntent intent;
+    
+    /**
+     * 当前会话ID（用于数据库持久化）
+     */
+    private Long conversationId;
+    
+    /**
+     * 当前播放列表ID（用于数据库持久化）
+     */
+    private Long playlistId;
     
     /**
      * 关键词列表
@@ -44,6 +51,30 @@ public class PlaylistContext {
     private java.util.List<VideoInfo> trashVideos = new java.util.ArrayList<>();
     
     /**
+     * 被拒绝的视频列表（未通过筛选）
+     */
+    private java.util.List<VideoInfo> rejectedVideos = new java.util.ArrayList<>();
+    
+    /**
+     * 当前视频的内容分析结果（用于流式反馈）
+     */
+    private java.util.Map<String, Object> lastContentAnalysis;
+    
+    /**
+     * 当前视频的数量估算结果（用于流式反馈）
+     */
+    private java.util.Map<String, Object> lastQuantityEstimation;
+    
+    /**
+     * 当前视频的采纳决策信息（用于流式反馈）
+     */
+    private java.util.Map<String, Object> lastDecisionInfo;
+    
+    /**
+     * 当前视频是否可理解（由 ContentAnalysis 节点写入）
+     */
+    private boolean currentUnderstandable = true;
+    /**
      * 为前端解释用的筛选理由 / 总体策略说明
      */
     private String selectionReason;
@@ -57,6 +88,28 @@ public class PlaylistContext {
      * 当前阶段
      */
     private Stage currentStage = Stage.INIT;
+    
+    // ==================== 状态机循环控制字段 ====================
+    
+    /**
+     * 当前正在处理的视频索引
+     */
+    private int currentVideoIndex = 0;
+    
+    /**
+     * 已累计的音乐数量
+     */
+    private int accumulatedCount = 0;
+    
+    /**
+     * 是否已达到目标数量
+     */
+    private boolean targetReached = false;
+    
+    /**
+     * 是否需要继续处理视频
+     */
+    private boolean shouldContinue = true;
     
     /**
      * 执行阶段枚举
@@ -74,6 +127,7 @@ public class PlaylistContext {
         TARGET_EVALUATION,      // 目标评估
         PARTIAL_RESULT,         // 未达标时的部分结果
         SUMMARY,                // 总结
+        SUMMARY_GENERATION,     // 总结生成（状态机节点用）
         END,                    // 结束
         // 兼容旧阶段命名（仍可能被部分 Skill 使用）
         SEARCHING,              // 搜索中

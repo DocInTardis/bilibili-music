@@ -6,6 +6,7 @@ import lombok.Data;
 @Data
 @Builder
 public class VideoInfo {
+    private String bvid;  // B站视频BV号
     private String title;
     private String url;
     private String author;
