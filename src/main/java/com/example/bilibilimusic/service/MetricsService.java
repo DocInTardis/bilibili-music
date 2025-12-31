@@ -75,11 +75,11 @@ public class MetricsService {
         }
         
         // 统计 LLM 相关节点
-        for (NodeTrace trace : nodeTraces) {
-            String nodeName = trace.getNodeName();
+        for (NodeTrace nodeTrace : nodeTraces) {
+            String nodeName = nodeTrace.getNodeName();
             if (nodeName.contains("keyword") || nodeName.contains("summary") || nodeName.contains("intent")) {
                 llmCalls++;
-                llmTotalTime += trace.getDurationMs();
+                llmTotalTime += nodeTrace.getDurationMs();
             }
         }
         

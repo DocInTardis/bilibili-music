@@ -60,7 +60,7 @@ public class UserPreferenceService {
             existing.setWeightScore(existing.getWeightScore() + deltaWeight);
             existing.setInteractionCount(existing.getInteractionCount() + 1);
             existing.setLastUpdated(LocalDateTime.now());
-            preferenceMapper.update(existing);
+            preferenceMapper.updateById(existing);
             log.debug("[Preference] 更新偏好: {} {} (权重: {} -> {})", 
                 type, target, existing.getWeightScore() - deltaWeight, existing.getWeightScore());
         } else {
@@ -71,8 +71,9 @@ public class UserPreferenceService {
                 .preferenceTarget(target)
                 .weightScore(deltaWeight)
                 .interactionCount(1)
+                .createdAt(LocalDateTime.now())
+                .lastUpdated(LocalDateTime.now())
                 .build();
-            newPref.onCreate(); // 设置时间戳
             preferenceMapper.insert(newPref);
             log.debug("[Preference] 新增偏好: {} {} (权重: {})", type, target, deltaWeight);
         }

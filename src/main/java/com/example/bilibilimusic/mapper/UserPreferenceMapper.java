@@ -1,32 +1,16 @@
 package com.example.bilibilimusic.mapper;
 
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.example.bilibilimusic.entity.UserPreference;
 import org.apache.ibatis.annotations.*;
-import org.springframework.stereotype.Repository;
 
 import java.util.List;
 
 /**
- * 用户偏好 Mapper
+ * 用户偏好 Mapper - 使用 MyBatis-Plus
  */
 @Mapper
-@Repository
-public interface UserPreferenceMapper {
-    
-    /**
-     * 保存用户偏好
-     */
-    @Insert("INSERT INTO user_preference (conversation_id, preference_type, preference_target, weight_score, interaction_count, last_updated, created_at) " +
-            "VALUES (#{conversationId}, #{preferenceType}, #{preferenceTarget}, #{weightScore}, #{interactionCount}, #{lastUpdated}, #{createdAt})")
-    @Options(useGeneratedKeys = true, keyProperty = "id")
-    void insert(UserPreference preference);
-    
-    /**
-     * 更新用户偏好
-     */
-    @Update("UPDATE user_preference SET weight_score = #{weightScore}, interaction_count = #{interactionCount}, last_updated = #{lastUpdated} " +
-            "WHERE id = #{id}")
-    void update(UserPreference preference);
+public interface UserPreferenceMapper extends BaseMapper<UserPreference> {
     
     /**
      * 根据会话ID和类型+目标查找偏好
