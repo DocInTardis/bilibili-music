@@ -52,6 +52,21 @@ public class VideoRelevanceScorer {
      * @return 评分结果
      */
     public ScoringResult scoreVideo(VideoInfo video, UserIntent intent) {
+        return scoreVideo(video, intent, null, null);
+    }
+    
+    /**
+     * 计算视频相关性分数（含偏好权重）
+     * 
+     * @param video 视频信息
+     * @param intent 用户意图
+     * @param artistPrefs 艺人偏好权重
+     * @param keywordPrefs 关键词偏好权重
+     * @return 评分结果
+     */
+    public ScoringResult scoreVideo(VideoInfo video, UserIntent intent, 
+                                    Map<String, Integer> artistPrefs, 
+                                    Map<String, Integer> keywordPrefs) {
         ScoringResult result = new ScoringResult();
         result.setVideo(video);
         
@@ -66,29 +81,29 @@ public class VideoRelevanceScorer {
             return result;
         }
         
-        // 2. 标题命中关键词 (+5 per keyword)
-        int titleScore = scoreTitleMatch(video.getTitle(), intent.getKeywords());
+        // 2. 标题命中关键词 (+5 per keyword, +偏好权重)
+        int titleScore = scoreTitleMatch(video.getTitle(), intent.getKeywords(), keywordPrefs);
         totalScore += titleScore;
         if (titleScore > 0) {
             reasons.add(String.format("标题命中关键词: +%d", titleScore));
         }
         
-        // 3. 作者命中关键词 (+4 per artist)
-        int authorScore = scoreAuthorMatch(video.getAuthor(), intent);
+        // 3. 作者命中关键词 (+4 per artist, +偏好权重)
+        int authorScore = scoreAuthorMatch(video.getAuthor(), intent, artistPrefs);
         totalScore += authorScore;
         if (authorScore > 0) {
             reasons.add(String.format("作者匹配: +%d", authorScore));
         }
         
-        // 4. 标签命中 (+3 per tag)
-        int tagScore = scoreTagMatch(video.getTags(), intent.getKeywords());
+        // 4. 标签命中 (+3 per tag, +偏好权重)
+        int tagScore = scoreTagMatch(video.getTags(), intent.getKeywords(), keywordPrefs);
         totalScore += tagScore;
         if (tagScore > 0) {
             reasons.add(String.format("标签匹配: +%d", tagScore));
         }
         
-        // 5. 描述命中 (+1 per keyword)
-        int descScore = scoreDescriptionMatch(video.getDescription(), intent.getKeywords());
+        // 5. 描述命中 (+1 per keyword, +偏好权重)
+        int descScore = scoreDescriptionMatch(video.getDescription(), intent.getKeywords(), keywordPrefs);
         totalScore += descScore;
         if (descScore > 0) {
             reasons.add(String.format("描述匹配: +%d", descScore));
@@ -156,7 +171,36 @@ public class VideoRelevanceScorer {
     }
     
     /**
-     * 标题匹配评分
+     * 标题匹配评分（含偏好加成）
+     */
+    private int scoreTitleMatch(String title, List<String> keywords, Map<String, Integer> keywordPrefs) {
+        if (title == null || keywords == null || keywords.isEmpty()) {
+            return 0;
+        }
+        
+        String lowerTitle = title.toLowerCase();
+        int score = 0;
+        
+        for (String keyword : keywords) {
+            if (lowerTitle.contains(keyword.toLowerCase())) {
+                score += 5;
+                
+                // 偏好加成
+                if (keywordPrefs != null) {
+                    Integer prefWeight = keywordPrefs.get(keyword.toLowerCase());
+                    if (prefWeight != null) {
+                        score += prefWeight;
+                        log.debug("[标题匹配] 关键词偏好加成: {} (+{})", keyword, prefWeight);
+                    }
+                }
+            }
+        }
+        
+        return score;
+    }
+    
+    /**
+     * 标题匹配评分（不含偏好）
      */
     private int scoreTitleMatch(String title, List<String> keywords) {
         if (title == null || keywords == null || keywords.isEmpty()) {
@@ -176,7 +220,41 @@ public class VideoRelevanceScorer {
     }
     
     /**
-     * 作者匹配评分
+     * 作者匹配评分（含偏好加成）
+     */
+    private int scoreAuthorMatch(String author, UserIntent intent, Map<String, Integer> artistPrefs) {
+        if (author == null) {
+            return 0;
+        }
+        
+        String lowerAuthor = author.toLowerCase();
+        int score = 0;
+        
+        // 匹配意图中的艺人
+        if (intent.getArtists() != null) {
+            for (String artist : intent.getArtists()) {
+                if (lowerAuthor.contains(artist.toLowerCase())) {
+                    score += 4;
+                }
+            }
+        }
+        
+        // 偏好加成
+        if (artistPrefs != null) {
+            for (Map.Entry<String, Integer> entry : artistPrefs.entrySet()) {
+                if (lowerAuthor.contains(entry.getKey().toLowerCase())) {
+                    score += entry.getValue();
+                    log.debug("[作者匹配] 艺人偏好加成: {} (+{})", entry.getKey(), entry.getValue());
+                    break;
+                }
+            }
+        }
+        
+        return score;
+    }
+    
+    /**
+     * 作者匹配评分（不含偏好）
      */
     private int scoreAuthorMatch(String author, UserIntent intent) {
         if (author == null || intent.getArtists() == null || intent.getArtists().isEmpty()) {
@@ -196,7 +274,36 @@ public class VideoRelevanceScorer {
     }
     
     /**
-     * 标签匹配评分
+     * 标签匹配评分（含偏好加成）
+     */
+    private int scoreTagMatch(String tags, List<String> keywords, Map<String, Integer> keywordPrefs) {
+        if (tags == null || keywords == null || keywords.isEmpty()) {
+            return 0;
+        }
+        
+        String lowerTags = tags.toLowerCase();
+        int score = 0;
+        
+        for (String keyword : keywords) {
+            if (lowerTags.contains(keyword.toLowerCase())) {
+                score += 3;
+                
+                // 偏好加成
+                if (keywordPrefs != null) {
+                    Integer prefWeight = keywordPrefs.get(keyword.toLowerCase());
+                    if (prefWeight != null) {
+                        score += prefWeight;
+                        log.debug("[标签匹配] 关键词偏好加成: {} (+{})", keyword, prefWeight);
+                    }
+                }
+            }
+        }
+        
+        return score;
+    }
+    
+    /**
+     * 标签匹配评分（不含偏好）
      */
     private int scoreTagMatch(String tags, List<String> keywords) {
         if (tags == null || keywords == null || keywords.isEmpty()) {
@@ -216,7 +323,36 @@ public class VideoRelevanceScorer {
     }
     
     /**
-     * 描述匹配评分
+     * 描述匹配评分（含偏好加成）
+     */
+    private int scoreDescriptionMatch(String description, List<String> keywords, Map<String, Integer> keywordPrefs) {
+        if (description == null || keywords == null || keywords.isEmpty()) {
+            return 0;
+        }
+        
+        String lowerDesc = description.toLowerCase();
+        int score = 0;
+        
+        for (String keyword : keywords) {
+            if (lowerDesc.contains(keyword.toLowerCase())) {
+                score += 1;
+                
+                // 偏好加成
+                if (keywordPrefs != null) {
+                    Integer prefWeight = keywordPrefs.get(keyword.toLowerCase());
+                    if (prefWeight != null) {
+                        score += prefWeight;
+                        log.debug("[描述匹配] 关键词偏好加成: {} (+{})", keyword, prefWeight);
+                    }
+                }
+            }
+        }
+        
+        return score;
+    }
+    
+    /**
+     * 描述匹配评分（不含偏好）
      */
     private int scoreDescriptionMatch(String description, List<String> keywords) {
         if (description == null || keywords == null || keywords.isEmpty()) {

@@ -4,11 +4,14 @@ import com.example.bilibilimusic.agent.graph.PlaylistAgentGraph;
 import com.example.bilibilimusic.agent.graph.PlaylistAgentGraphBuilder;
 import com.example.bilibilimusic.context.PlaylistContext;
 import com.example.bilibilimusic.context.UserIntent;
+import com.example.bilibilimusic.dto.ExecutionMetrics;
+import com.example.bilibilimusic.dto.ExecutionTrace;
 import com.example.bilibilimusic.dto.PlaylistRequest;
 import com.example.bilibilimusic.dto.PlaylistResponse;
 import com.example.bilibilimusic.entity.Conversation;
 import com.example.bilibilimusic.entity.Playlist;
 import com.example.bilibilimusic.service.DatabaseService;
+import com.example.bilibilimusic.service.MetricsService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -41,6 +44,7 @@ public class PlaylistAgent {
     private final PlaylistAgentGraphBuilder graphBuilder;
     private final SimpMessagingTemplate messagingTemplate;
     private final DatabaseService databaseService;
+    private final MetricsService metricsService;
     
     /**
      * 执行歌单生成任务（使用状态机）
@@ -79,6 +83,11 @@ public class PlaylistAgent {
         // 3. 执行图
         statusCallback.accept("🎯 开始执行状态机...");
         graph.execute(context);
+        
+        // 3.5 计算并记录指标
+        ExecutionTrace trace = graph.getExecutionTrace();
+        ExecutionMetrics metrics = metricsService.calculateMetrics(trace, context);
+        metricsService.recordMetrics(metrics);
             
         // 4. 更新播放列表状态
         if (context.getPlaylistId() != null) {

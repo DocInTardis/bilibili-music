@@ -5,6 +5,8 @@ import com.example.bilibilimusic.context.PlaylistContext;
 import com.example.bilibilimusic.context.UserIntent;
 import com.example.bilibilimusic.dto.MusicUnit;
 import com.example.bilibilimusic.dto.VideoInfo;
+import com.example.bilibilimusic.service.UserPreferenceService;
+import com.example.bilibilimusic.skill.VideoRelevanceScorer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -14,10 +16,14 @@ import java.util.Map;
 
 /**
  * 相关性决策节点（RelevanceDecision）
+ * 使用打分制判断视频相关性（含偏好加成）
  */
 @Slf4j
 @RequiredArgsConstructor
 public class RelevanceDecisionNode implements AgentNode {
+    
+    private final VideoRelevanceScorer scorer;
+    private final UserPreferenceService preferenceService;
 
     @Override
     public NodeResult execute(PlaylistContext state) {
@@ -31,13 +37,26 @@ public class RelevanceDecisionNode implements AgentNode {
         state.setCurrentStage(PlaylistContext.Stage.CANDIDATE_DECISION);
 
         UserIntent intent = state.getIntent();
-        boolean accepted = isRelevantToIntent(video, intent);
-        String decisionReason = accepted ? "标题/标签与需求较为匹配" : "与需求相关度较低";
+        
+        // 获取偏好权重
+        Long conversationId = state.getConversationId();
+        Map<String, Integer> artistPrefs = preferenceService.getArtistPreferences(conversationId);
+        Map<String, Integer> keywordPrefs = preferenceService.getKeywordPreferences(conversationId);
+        
+        // 使用打分制判断相关性（含偏好加成）
+        VideoRelevanceScorer.ScoringResult scoringResult = scorer.scoreVideo(video, intent, artistPrefs, keywordPrefs);
+        boolean accepted = scoringResult.isAccepted();
+        int score = scoringResult.getScore();
+        String decisionReason = scoringResult.getReason();
 
         Map<String, Object> decisionInfo = new HashMap<>();
         decisionInfo.put("accepted", accepted);
+        decisionInfo.put("score", score);
         decisionInfo.put("reason", decisionReason);
         state.setLastDecisionInfo(decisionInfo);
+        
+        log.debug("[RelDecision] {} - 评分: {}, 结果: {}", 
+            video.getTitle(), score, accepted ? "接受" : "拒绝");
 
         if (accepted) {
             // 从数量估算中读取估算结果
@@ -76,31 +95,5 @@ public class RelevanceDecisionNode implements AgentNode {
         }
 
         return NodeResult.success(accepted ? "video_accepted" : "progress_update");
-    }
-
-    private boolean isRelevantToIntent(VideoInfo video, UserIntent intent) {
-        StringBuilder sb = new StringBuilder();
-        if (video.getTitle() != null) sb.append(video.getTitle()).append(' ');
-        if (video.getTags() != null) sb.append(video.getTags()).append(' ');
-        if (video.getDescription() != null) sb.append(video.getDescription()).append(' ');
-        if (video.getAuthor() != null) sb.append(video.getAuthor());
-        String haystack = sb.toString().toLowerCase();
-
-        List<String> kws = intent.getKeywords();
-        if (kws == null || kws.isEmpty()) {
-            if (intent.getQuery() != null && !intent.getQuery().isBlank()) {
-                kws = List.of(intent.getQuery());
-            } else {
-                return true;
-            }
-        }
-
-        for (String k : kws) {
-            if (k == null || k.isBlank()) continue;
-            if (haystack.contains(k.toLowerCase())) {
-                return true;
-            }
-        }
-        return false;
     }
 }

@@ -4,6 +4,7 @@ import com.example.bilibilimusic.agent.graph.edges.AfterRetrievalEdge;
 import com.example.bilibilimusic.agent.graph.edges.ContinueJudgeEdge;
 import com.example.bilibilimusic.agent.graph.nodes.*;
 import com.example.bilibilimusic.service.DatabaseService;
+import com.example.bilibilimusic.service.UserPreferenceService;
 import com.example.bilibilimusic.skill.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,6 +28,7 @@ public class PlaylistAgentGraphBuilder {
     private final SummarySkill summarySkill;
     private final SimpMessagingTemplate messagingTemplate;
     private final DatabaseService databaseService;
+    private final UserPreferenceService preferenceService;
     
     /**
      * 构建 PlaylistAgent 状态图
@@ -46,13 +48,13 @@ public class PlaylistAgentGraphBuilder {
         
         // Video Judgement Loop 子图节点
         graph.addNode("pre_sort_videos", 
-            new PreSortVideosNode());
+            new PreSortVideosNode(preferenceService));
         graph.addNode("content_analysis", 
             new ContentAnalysisNode(messagingTemplate));
         graph.addNode("quantity_estimation", 
             new QuantityEstimationNode());
         graph.addNode("relevance_decision", 
-            new RelevanceDecisionNode());
+            new RelevanceDecisionNode(relevanceScorer, preferenceService));
         graph.addNode("video_accepted", 
             new VideoAcceptedNode(databaseService, messagingTemplate));
         graph.addNode("progress_update", 

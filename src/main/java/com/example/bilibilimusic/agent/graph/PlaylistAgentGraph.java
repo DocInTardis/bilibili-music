@@ -1,10 +1,15 @@
 package com.example.bilibilimusic.agent.graph;
 
 import com.example.bilibilimusic.context.PlaylistContext;
+import com.example.bilibilimusic.dto.EdgeTrace;
+import com.example.bilibilimusic.dto.ExecutionTrace;
+import com.example.bilibilimusic.dto.NodeTrace;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * PlaylistAgent 的状态图
@@ -17,6 +22,12 @@ public class PlaylistAgentGraph {
     private final Map<String, AgentNode> nodes = new HashMap<>();
     private final Map<String, ConditionalEdge> edges = new HashMap<>();
     private String startNode;
+    
+    /**
+     * 执行追踪记录
+     */
+    @Getter
+    private ExecutionTrace executionTrace;
     
     /**
      * 添加节点
@@ -50,49 +61,117 @@ public class PlaylistAgentGraph {
             throw new IllegalStateException("起始节点未设置");
         }
         
+        // 初始化执行追踪
+        executionTrace = ExecutionTrace.builder()
+            .executionId(UUID.randomUUID().toString())
+            .conversationId(state.getConversationId())
+            .playlistId(state.getPlaylistId())
+            .startTime(System.currentTimeMillis())
+            .status("RUNNING")
+            .build();
+        
         String currentNode = startNode;
         AgentNode.NodeResult lastResult = null;
         int maxIterations = 1000; // 防止无限循环
         int iterations = 0;
         
-        while (currentNode != null && iterations < maxIterations) {
-            iterations++;
-            
-            log.debug("[Graph] 执行节点: {}", currentNode);
-            
-            // 执行当前节点
-            AgentNode node = nodes.get(currentNode);
-            if (node == null) {
-                log.error("[Graph] 节点不存在: {}", currentNode);
-                break;
+        try {
+            while (currentNode != null && iterations < maxIterations) {
+                iterations++;
+                
+                log.debug("[Graph] 执行节点: {}", currentNode);
+                
+                // 执行当前节点
+                AgentNode node = nodes.get(currentNode);
+                if (node == null) {
+                    log.error("[Graph] 节点不存在: {}", currentNode);
+                    break;
+                }
+                
+                // 记录节点开始时间
+                long nodeStartTime = System.currentTimeMillis();
+                
+                try {
+                    lastResult = node.execute(state);
+                    
+                    // 记录节点执行追踪
+                    long nodeEndTime = System.currentTimeMillis();
+                    NodeTrace nodeTrace = NodeTrace.builder()
+                        .nodeName(currentNode)
+                        .startTime(nodeStartTime)
+                        .endTime(nodeEndTime)
+                        .durationMs(nodeEndTime - nodeStartTime)
+                        .success(true)
+                        .output(lastResult != null ? lastResult.getNextNode() : null)
+                        .build();
+                    executionTrace.addNodeTrace(nodeTrace);
+                    
+                } catch (Exception e) {
+                    // 记录节点失败
+                    long nodeEndTime = System.currentTimeMillis();
+                    NodeTrace nodeTrace = NodeTrace.builder()
+                        .nodeName(currentNode)
+                        .startTime(nodeStartTime)
+                        .endTime(nodeEndTime)
+                        .durationMs(nodeEndTime - nodeStartTime)
+                        .success(false)
+                        .error(e.getMessage())
+                        .build();
+                    executionTrace.addNodeTrace(nodeTrace);
+                    
+                    log.error("[Graph] 节点执行失败: {}", currentNode, e);
+                    executionTrace.setStatus("FAILED");
+                    throw e;
+                }
+                
+                // 根据条件边决定下一个节点
+                ConditionalEdge edge = edges.get(currentNode);
+                if (edge == null) {
+                    // 没有边，说明是终止节点
+                    log.debug("[Graph] 节点 {} 没有出边，执行结束", currentNode);
+                    break;
+                }
+                
+                String nextNode = edge.decide(state, lastResult);
+                
+                // 记录边决策追踪
+                if (nextNode != null) {
+                    boolean isLoop = nextNode.equals("content_analysis"); // 判断是否是循环边
+                    EdgeTrace edgeTrace = EdgeTrace.builder()
+                        .fromNode(currentNode)
+                        .toNode(nextNode)
+                        .timestamp(System.currentTimeMillis())
+                        .reason("Conditional decision")
+                        .isLoop(isLoop)
+                        .build();
+                    executionTrace.addEdgeTrace(edgeTrace);
+                }
+                
+                if (nextNode == null) {
+                    log.debug("[Graph] 条件边返回null，执行结束");
+                    break;
+                }
+                
+                log.debug("[Graph] 从 {} -> {}", currentNode, nextNode);
+                currentNode = nextNode;
             }
             
-            lastResult = node.execute(state);
-            
-            // 根据条件边决定下一个节点
-            ConditionalEdge edge = edges.get(currentNode);
-            if (edge == null) {
-                // 没有边，说明是终止节点
-                log.debug("[Graph] 节点 {} 没有出边，执行结束", currentNode);
-                break;
+            if (iterations >= maxIterations) {
+                log.error("[Graph] 达到最大迭代次数，可能存在无限循环");
+                executionTrace.setStatus("TIMEOUT");
+            } else {
+                executionTrace.setStatus("SUCCESS");
             }
             
-            String nextNode = edge.decide(state, lastResult);
+        } finally {
+            // 完成执行追踪
+            long endTime = System.currentTimeMillis();
+            executionTrace.setEndTime(endTime);
+            executionTrace.setTotalDurationMs(endTime - executionTrace.getStartTime());
             
-            if (nextNode == null) {
-                log.debug("[Graph] 条件边返回null，执行结束");
-                break;
-            }
-            
-            log.debug("[Graph] 从 {} -> {}", currentNode, nextNode);
-            currentNode = nextNode;
+            log.info("[Graph] 图执行完成，共执行 {} 个节点，总耗时: {}ms", iterations, executionTrace.getTotalDurationMs());
+            log.info("[Graph] {}", executionTrace.getSummary());
         }
-        
-        if (iterations >= maxIterations) {
-            log.error("[Graph] 达到最大迭代次数，可能存在无限循环");
-        }
-        
-        log.info("[Graph] 图执行完成，共执行 {} 个节点", iterations);
     }
     
     /**
