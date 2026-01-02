@@ -98,8 +98,8 @@ public class PlaylistAgent {
             agentMetricsService.getOrCreateMetrics(playlistId, conversationId);
             long startTime = System.currentTimeMillis();
             
-            // 3. 构建状态图
-            PlaylistAgentGraph graph = graphBuilder.build();
+            // 3. 构建状态图（基于请求选择策略）
+            PlaylistAgentGraph graph = graphBuilder.build(request);
             
             // 4. 执行图（定期保存上下文）
             statusCallback.accept("🎯 开始执行状态机...");
@@ -196,6 +196,7 @@ public class PlaylistAgent {
             .limit(videoLimit)
             .preference(request.getPreference())
             .downloadAsMp3(request.isDownloadAsMp3())
+            .mode(request.getMode())
             .build();
         
         context.setIntent(intent);

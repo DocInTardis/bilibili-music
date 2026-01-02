@@ -9,7 +9,7 @@ import lombok.Data;
 @Data
 @Builder
 public class UserIntent {
-    
+
     /**
      * 原始用户输入（完整自然语言）
      */
@@ -71,4 +71,9 @@ public class UserIntent {
      * 是否只要单一艺人作品（排除合作/混剪）
      */
     private boolean singleArtistOnly;
+    
+    /**
+     * 执行模式：default / low_cost 等
+     */
+    private String mode;
 }

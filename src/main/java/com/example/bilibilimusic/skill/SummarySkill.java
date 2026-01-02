@@ -33,23 +33,32 @@ public class SummarySkill implements Skill {
     @Override
     public boolean execute(PlaylistContext context) {
         try {
-            log.info("[SummarySkill] 开始生成歌单总结");
+            String mode = context.getIntent() != null ? context.getIntent().getMode() : null;
+            boolean lowCost = mode != null && "low_cost".equalsIgnoreCase(mode.trim());
+            log.info("[SummarySkill] 开始生成歌单总结 (mode={})", mode);
             context.setCurrentStage(PlaylistContext.Stage.SUMMARIZING);
-            
+                
             List<VideoInfo> videos = context.getSelectedVideos();
             if (videos.isEmpty()) {
                 context.setSummary("暂无视频可总结");
                 context.setCurrentStage(PlaylistContext.Stage.COMPLETED);
                 return false;
             }
-            
-            String summary = generateSummary(videos, context.getIntent(), context.getSelectionReason());
+                
+            String summary;
+            if (lowCost) {
+                // 低成本模式：跳过 LLM，直接使用降级总结
+                log.info("[SummarySkill] 低成本模式：跳过 LLM，总结使用降级方案");
+                summary = buildFallbackSummary(videos, context.getIntent());
+            } else {
+                summary = generateSummary(videos, context.getIntent(), context.getSelectionReason());
+            }
             context.setSummary(summary);
             context.setCurrentStage(PlaylistContext.Stage.COMPLETED);
-            
+                
             log.info("[SummarySkill] 总结生成完成");
             return true;
-            
+    
         } catch (Exception e) {
             log.error("[SummarySkill] 生成总结失败", e);
             context.setSummary("总结生成失败，但已完成视频筛选");

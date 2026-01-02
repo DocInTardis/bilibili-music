@@ -31,10 +31,19 @@ public class KeywordExtractionSkill implements Skill {
     public boolean execute(PlaylistContext context) {
         try {
             String originalQuery = context.getIntent().getQuery();
-            log.info("[KeywordExtractionSkill] 原始查询: {}", originalQuery);
-            
-            String extractedKeyword = extractKeyword(originalQuery, context);
-            
+            String mode = context.getIntent() != null ? context.getIntent().getMode() : null;
+            boolean lowCost = mode != null && "low_cost".equalsIgnoreCase(mode.trim());
+            log.info("[KeywordExtractionSkill] 原始查询: {} (mode={})", originalQuery, mode);
+                
+            String extractedKeyword;
+            if (lowCost) {
+                // 低成本模式：跳过 LLM，直接走规则后处理
+                log.info("[KeywordExtractionSkill] 低成本模式：跳过 LLM 提取，直接使用规则清洗原始查询");
+                extractedKeyword = originalQuery;
+            } else {
+                extractedKeyword = extractKeyword(originalQuery, context);
+            }
+                
             if (extractedKeyword != null && !extractedKeyword.isEmpty()) {
                 // 使用增强的规则后处理
                 String cleaned = applyRuleBasedFallback(extractedKeyword, originalQuery);

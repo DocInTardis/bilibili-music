@@ -158,8 +158,14 @@ public class CurationSkill implements Skill {
      */
     public boolean judgeVideoWithLLM(VideoInfo video, com.example.bilibilimusic.context.UserIntent intent) {
         try {
+            String mode = intent != null ? intent.getMode() : null;
+            boolean lowCost = mode != null && "low_cost".equalsIgnoreCase(mode.trim());
+            if (lowCost) {
+                log.info("[CurationSkill] 低成本模式：跳过 LLM 边界判断，默认拒绝边界视频: {}", video.getTitle());
+                return false;
+            }
             String prompt = buildJudgementPrompt(video, intent);
-            
+    
             Map<String, Object> payload = new HashMap<>();
             payload.put("model", model);
             payload.put("stream", false);

@@ -28,4 +28,11 @@ public class PlaylistRequest {
      * 是否期望下载为 MP3（目前仅预留，不真正下载）。
      */
     private boolean downloadAsMp3 = false;
+
+    /**
+     * 执行模式：
+     * - null / 空 或 "default"：正常模式
+     * - "low_cost"：低成本模式（减少 LLM 调用 / 使用降级策略）
+     */
+    private String mode;
 }
