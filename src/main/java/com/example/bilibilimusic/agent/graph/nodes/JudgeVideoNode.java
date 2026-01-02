@@ -52,14 +52,14 @@ public class JudgeVideoNode implements AgentNode {
             // 负分直接拒绝
             log.debug("[JudgeNode] 负关键词拒绝: {}", video.getTitle());
             state.getRejectedVideos().add(video);
-        } else if (scoringResult.getScore() >= CurationSkill.LLM_THRESHOLD_HIGH) {
+        } else if (scoringResult.getScore() >= curationSkill.getLlmThresholdHigh()) {
             // 高分直接接受
             log.info("[JudgeNode] 高分接受({}分): {}", scoringResult.getScore(), video.getTitle());
             state.getSelectedVideos().add(video);
             state.setAccumulatedCount(state.getAccumulatedCount() + 1);
             accepted = true;
             pushVideoAccepted(state, video, scoringResult.getScore(), "高分直接接受");
-        } else if (scoringResult.getScore() <= CurationSkill.LLM_THRESHOLD_LOW) {
+        } else if (scoringResult.getScore() <= curationSkill.getLlmThresholdLow()) {
             // 低分直接拒绝
             log.debug("[JudgeNode] 低分拒绝({}分): {}", scoringResult.getScore(), video.getTitle());
             state.getRejectedVideos().add(video);

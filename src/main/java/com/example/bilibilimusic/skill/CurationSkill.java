@@ -38,10 +38,10 @@ public class CurationSkill implements Skill {
     @Value("${ollama.model}")
     private String model;
     
-    // 评分阈值配置
-    public static final int MIN_SCORE_THRESHOLD = 3;  // 最低接受分数
-    public static final int LLM_THRESHOLD_LOW = 2;     // 分数低于此值，直接拒绝
-    public static final int LLM_THRESHOLD_HIGH = 8;    // 分数高于此值，直接接受
+    // 评分阈值配置（可自适应调整）
+    private int minScoreThreshold = 3;  // 最低接受分数（目前未直接使用，预留）
+    private int llmThresholdLow = 2;    // 分数低于此值，直接拒绝
+    private int llmThresholdHigh = 8;   // 分数高于此值，直接接受
     // 介于两者之间，调用LLM做最终判断
     
     @Override
@@ -86,12 +86,12 @@ public class CurationSkill implements Skill {
                     log.debug("[CurationSkill] 直接拒绝: {}", video.getTitle());
                     continue;
                 }
-                
-                if (result.getScore() >= LLM_THRESHOLD_HIGH) {
+                                
+                if (result.getScore() >= llmThresholdHigh) {
                     // 高分直接接受
                     selectedVideos.add(video);
                     log.info("[CurationSkill] 高分直接接受 ({}): {}", result.getScore(), video.getTitle());
-                } else if (result.getScore() <= LLM_THRESHOLD_LOW) {
+                } else if (result.getScore() <= llmThresholdLow) {
                     // 低分直接拒绝
                     log.debug("[CurationSkill] 低分直接拒绝 ({}): {}", result.getScore(), video.getTitle());
                 } else {
@@ -231,5 +231,32 @@ public class CurationSkill implements Skill {
     @Override
     public String getName() {
         return "CurationSkill";
+    }
+    
+    // ==================== 阈值访问与自适应调整 ====================
+    public int getMinScoreThreshold() {
+        return minScoreThreshold;
+    }
+    
+    public void setMinScoreThreshold(int minScoreThreshold) {
+        this.minScoreThreshold = Math.max(0, minScoreThreshold);
+    }
+    
+    public int getLlmThresholdLow() {
+        return llmThresholdLow;
+    }
+    
+    public int getLlmThresholdHigh() {
+        return llmThresholdHigh;
+    }
+    
+    public void setLlmThresholds(int low, int high) {
+        // 保证 0 <= low < high <= 10 的基本约束
+        int normalizedLow = Math.max(0, low);
+        int normalizedHigh = Math.max(normalizedLow + 1, Math.min(10, high));
+        log.info("[CurationSkill] 更新 LLM 阈值: low {} -> {}, high {} -> {}", 
+            this.llmThresholdLow, normalizedLow, this.llmThresholdHigh, normalizedHigh);
+        this.llmThresholdLow = normalizedLow;
+        this.llmThresholdHigh = normalizedHigh;
     }
 }

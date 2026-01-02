@@ -4,6 +4,7 @@ import com.example.bilibilimusic.context.PlaylistContext;
 import com.example.bilibilimusic.dto.ExecutionMetrics;
 import com.example.bilibilimusic.dto.ExecutionTrace;
 import com.example.bilibilimusic.dto.NodeTrace;
+import com.example.bilibilimusic.skill.CurationSkill;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -18,6 +19,8 @@ import java.util.List;
 @RequiredArgsConstructor
 @Slf4j
 public class MetricsService {
+    
+    private final CurationSkill curationSkill;
     
     /**
      * 从执行追踪和上下文中计算指标
@@ -45,12 +48,15 @@ public class MetricsService {
         
         // 计算衍生指标
         metrics.calculateDerivedMetrics();
-        
+            
+        // 基于评估指标自适应调整 Curation 阈值
+        autoTuneCurationThresholds(metrics);
+            
         log.info("[Metrics] {}", metrics.getSummary());
-        
+            
         return metrics;
     }
-    
+        
     /**
      * 分析节点追踪数据
      */
@@ -86,7 +92,38 @@ public class MetricsService {
         metrics.setLlmCallCount(llmCalls);
         metrics.setLlmTotalTime(llmTotalTime);
     }
-    
+        
+    /**
+     * 基于执行指标自动调整 CurationSkill 的 LLM 阈值
+     */
+    private void autoTuneCurationThresholds(ExecutionMetrics metrics) {
+        if (metrics == null) {
+            return;
+        }
+        Integer totalEvaluated = metrics.getTotalEvaluated();
+        Double hitRate = metrics.getHitRate();
+        Double acceptanceRate = metrics.getAcceptanceRate();
+            
+        // 样本太少时不调参，避免抖动
+        if (totalEvaluated == null || totalEvaluated < 5 || hitRate == null || acceptanceRate == null) {
+            return;
+        }
+            
+        int currentLow = curationSkill.getLlmThresholdLow();
+        int currentHigh = curationSkill.getLlmThresholdHigh();
+            
+        // 命中率和接受率过低：认为筛选过于严格，稍微放宽阈值
+        if (hitRate < 0.3 && acceptanceRate < 0.2) {
+            int newLow = Math.max(0, currentLow - 1);
+            int newHigh = Math.max(newLow + 1, currentHigh - 1);
+            curationSkill.setLlmThresholds(newLow, newHigh);
+            log.info("[AutoTune] 命中率/接受率偏低，放宽 LLM 阈值: low {} -> {}, high {} -> {} (hitRate={}, acceptanceRate={})",
+                currentLow, newLow, currentHigh, newHigh, hitRate, acceptanceRate);
+        }
+            
+        // 如果后续需要，也可以在命中率过高时收紧阈值，这里先保守只在效果差时调整
+    }
+        
     /**
      * 记录指标到日志（后续可扩展到数据库）
      */
