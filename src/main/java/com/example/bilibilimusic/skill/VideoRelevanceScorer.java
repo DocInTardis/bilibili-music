@@ -2,7 +2,11 @@ package com.example.bilibilimusic.skill;
 
 import com.example.bilibilimusic.context.UserIntent;
 import com.example.bilibilimusic.dto.VideoInfo;
+import com.example.bilibilimusic.entity.UserPreference;
+import com.example.bilibilimusic.service.UserBehaviorFeedbackService;
+import com.example.bilibilimusic.service.UserPreferenceService;
 import lombok.Data;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -14,10 +18,19 @@ import java.util.stream.Collectors;
  * 视频相关性评分器
  * 
  * 核心思想：准确性 = （更好的候选）×（更准的相关性判断）×（更懂用户）×（更少误判）
+ * 
+ * 新增：完整的"行为 → 偏好 → 决策"闭环
+ * 1. 行为建模：记录用户的点赞、跳过、播放完成度等行为
+ * 2. 权重衰减：偏好权重随时间指数衰减（半衰期策略）
+ * 3. 反馈强化：冷启动探索 + ε-greedy 平衡探索与利用
  */
 @Component
+@RequiredArgsConstructor
 @Slf4j
 public class VideoRelevanceScorer {
+    
+    private final UserBehaviorFeedbackService behaviorFeedbackService;
+    private final UserPreferenceService preferenceService;
     
     // ==================== 负关键词（黑名单） ====================
     
@@ -52,7 +65,7 @@ public class VideoRelevanceScorer {
      * @return 评分结果
      */
     public ScoringResult scoreVideo(VideoInfo video, UserIntent intent) {
-        return scoreVideo(video, intent, null, null);
+        return scoreVideo(video, intent, null, null, null);
     }
     
     /**
@@ -67,6 +80,28 @@ public class VideoRelevanceScorer {
     public ScoringResult scoreVideo(VideoInfo video, UserIntent intent, 
                                     Map<String, Integer> artistPrefs, 
                                     Map<String, Integer> keywordPrefs) {
+        return scoreVideo(video, intent, artistPrefs, keywordPrefs, null);
+    }
+    
+    /**
+     * 计算视频相关性分数（完整闭环版本）
+     * 
+     * 支持：
+     * 1. 基础相关性评分
+     * 2. 偏好权重加成（含衰减）
+     * 3. 探索-利用平衡（冷启动策略）
+     * 
+     * @param video 视频信息
+     * @param intent 用户意图
+     * @param artistPrefs 艺人偏好权重
+     * @param keywordPrefs 关键词偏好权重
+     * @param conversationId 会话 ID（用于冷启动判断）
+     * @return 评分结果
+     */
+    public ScoringResult scoreVideo(VideoInfo video, UserIntent intent, 
+                                    Map<String, Integer> artistPrefs, 
+                                    Map<String, Integer> keywordPrefs,
+                                    Long conversationId) {
         ScoringResult result = new ScoringResult();
         result.setVideo(video);
         
@@ -146,11 +181,35 @@ public class VideoRelevanceScorer {
             reasons.add(String.format("可信度: +%d", credibilityScore));
         }
         
+        // 11. 新增：探索加成（冷启动策略）
+        if (conversationId != null) {
+            boolean isNewVideo = !hasPreference(video.getBvid(), conversationId);
+            double explorationBonus = behaviorFeedbackService.getExplorationBonus(isNewVideo, conversationId);
+            
+            if (explorationBonus > 0) {
+                totalScore += (int) explorationBonus;
+                reasons.add(String.format("探索加成: +%.0f", explorationBonus));
+            }
+        }
+        
         result.setScore(totalScore);
         result.setReason(String.join("; ", reasons));
         result.setReject(totalScore < 0); // 负分直接拒绝
         
         return result;
+    }
+    
+    /**
+     * 判断是否对该视频有偏好记录
+     */
+    private boolean hasPreference(String bvid, Long conversationId) {
+        if (bvid == null || conversationId == null) {
+            return false;
+        }
+        
+        Map<String, Integer> prefs = preferenceService.getPreferenceWeights(conversationId);
+        String key = "video:" + bvid;
+        return prefs.containsKey(key);
     }
     
     /**
