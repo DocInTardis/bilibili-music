@@ -41,12 +41,12 @@ public class PreSortVideosNode implements AgentNode {
 
         log.info("[PreSort] 开始对 {} 个视频进行预排序", videos.size());
         
-        // 从 Redis 缓存获取用户偏好权重（个性化推荐）
+        // 从数据库获取用户偏好权重（个性化推荐，含时间衰减）
         Long conversationId = state.getConversationId();
-        Map<String, Integer> artistPrefs = cacheService.getArtistPreferences(conversationId);
-        Map<String, Integer> keywordPrefs = cacheService.getKeywordPreferences(conversationId);
-        
-        log.info("[PreSort] 加载 Redis 偏好权重 - 艺人: {}, 关键词: {}", artistPrefs.size(), keywordPrefs.size());
+        Map<String, Integer> artistPrefs = preferenceService.getArtistPreferences(conversationId);
+        Map<String, Integer> keywordPrefs = preferenceService.getKeywordPreferences(conversationId);
+                
+        log.info("[PreSort] 加载偏好权重 - 艺人: {}, 关键词: {}", artistPrefs.size(), keywordPrefs.size());
 
         videos.sort(Comparator.comparing((VideoInfo v) -> isPlaylistStyle(v))
             .thenComparing((VideoInfo v) -> -calculateKeywordMatchScoreWithPreference(v, intent, artistPrefs, keywordPrefs))

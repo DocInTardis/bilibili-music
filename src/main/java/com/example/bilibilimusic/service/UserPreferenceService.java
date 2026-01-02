@@ -21,6 +21,7 @@ public class UserPreferenceService {
     
     private final UserPreferenceMapper preferenceMapper;
     private final CacheService cacheService;
+    private final PreferenceDecayService decayService;
     
     /**
      * 增加视频偏好权重（点赞）
@@ -91,29 +92,33 @@ public class UserPreferenceService {
     public Map<String, Integer> getPreferenceWeights(Long conversationId) {
         List<UserPreference> preferences = preferenceMapper.findByConversationId(conversationId);
         Map<String, Integer> weights = new HashMap<>();
-        
+            
         for (UserPreference pref : preferences) {
             String key = pref.getPreferenceType() + ":" + pref.getPreferenceTarget();
-            weights.put(key, pref.getWeightScore());
+            long halfLife = decayService.getRecommendedHalfLife(pref.getPreferenceType());
+            double decayed = decayService.calculateDecayedWeight(pref.getWeightScore(), pref.getLastUpdated(), halfLife);
+            weights.put(key, (int) Math.round(decayed));
         }
-        
+            
         return weights;
     }
-    
+        
     /**
      * 获取艺人偏好权重
      */
     public Map<String, Integer> getArtistPreferences(Long conversationId) {
         List<UserPreference> preferences = preferenceMapper.findByConversationIdAndType(conversationId, "artist");
         Map<String, Integer> weights = new HashMap<>();
-        
+            
         for (UserPreference pref : preferences) {
-            weights.put(pref.getPreferenceTarget(), pref.getWeightScore());
+            long halfLife = decayService.getRecommendedHalfLife("artist");
+            double decayed = decayService.calculateDecayedWeight(pref.getWeightScore(), pref.getLastUpdated(), halfLife);
+            weights.put(pref.getPreferenceTarget(), (int) Math.round(decayed));
         }
-        
+            
         return weights;
     }
-    
+        
     /**
      * 获取关键词偏好权重
      */
@@ -122,7 +127,9 @@ public class UserPreferenceService {
         Map<String, Integer> weights = new HashMap<>();
         
         for (UserPreference pref : preferences) {
-            weights.put(pref.getPreferenceTarget(), pref.getWeightScore());
+            long halfLife = decayService.getRecommendedHalfLife("keyword");
+            double decayed = decayService.calculateDecayedWeight(pref.getWeightScore(), pref.getLastUpdated(), halfLife);
+            weights.put(pref.getPreferenceTarget(), (int) Math.round(decayed));
         }
         
         return weights;

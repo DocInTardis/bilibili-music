@@ -43,17 +43,17 @@ public class RelevanceDecisionNode implements AgentNode {
         
         // 尝试从 Redis 缓存获取 LLM 判断结果
         VideoRelevanceScorer.ScoringResult scoringResult = cacheService.getCachedLLMJudgement(video.getBvid(), intent);
-        
+                
         if (scoringResult != null) {
             log.debug("[RelDecision] 命中 LLM 缓存: bvid={}, score={}", video.getBvid(), scoringResult.getScore());
         } else {
-            // 缓存未命中，从 Redis 获取偏好权重
-            Map<String, Integer> artistPrefs = cacheService.getArtistPreferences(conversationId);
-            Map<String, Integer> keywordPrefs = cacheService.getKeywordPreferences(conversationId);
-            
-            // 使用打分制判断相关性（含偏好加成）
-            scoringResult = scorer.scoreVideo(video, intent, artistPrefs, keywordPrefs);
-            
+            // 缓存未命中，从数据库获取偏好权重（含时间衰减）
+            Map<String, Integer> artistPrefs = preferenceService.getArtistPreferences(conversationId);
+            Map<String, Integer> keywordPrefs = preferenceService.getKeywordPreferences(conversationId);
+                    
+            // 使用打分制判断相关性（含偏好加成 & 探索/冷启动策略）
+            scoringResult = scorer.scoreVideo(video, intent, artistPrefs, keywordPrefs, conversationId);
+                    
             // 缓存 LLM 判断结果
             cacheService.cacheLLMJudgement(video.getBvid(), intent, scoringResult);
         }
