@@ -3,6 +3,9 @@ package com.example.bilibilimusic.agent.graph;
 import com.example.bilibilimusic.agent.graph.edges.AfterRetrievalEdge;
 import com.example.bilibilimusic.agent.graph.edges.ContinueJudgeEdge;
 import com.example.bilibilimusic.agent.graph.nodes.*;
+import com.example.bilibilimusic.service.AgentBehaviorLogService;
+import com.example.bilibilimusic.service.AgentMetricsService;
+import com.example.bilibilimusic.service.CacheService;
 import com.example.bilibilimusic.service.DatabaseService;
 import com.example.bilibilimusic.service.UserPreferenceService;
 import com.example.bilibilimusic.skill.*;
@@ -29,32 +32,35 @@ public class PlaylistAgentGraphBuilder {
     private final SimpMessagingTemplate messagingTemplate;
     private final DatabaseService databaseService;
     private final UserPreferenceService preferenceService;
+    private final CacheService cacheService;
+    private final AgentBehaviorLogService behaviorLogService;
+    private final AgentMetricsService metricsService;
     
     /**
      * 构建 PlaylistAgent 状态图
      */
     public PlaylistAgentGraph build() {
-        PlaylistAgentGraph graph = new PlaylistAgentGraph();
+        PlaylistAgentGraph graph = new PlaylistAgentGraph(behaviorLogService, metricsService);
         
         // 1. 添加所有节点
         graph.addNode("intent_understanding", 
             new IntentUnderstandingNode(messagingTemplate));
         
         graph.addNode("keyword_extraction", 
-            new KeywordExtractionNode(keywordExtractionSkill, messagingTemplate));
+            new KeywordExtractionNode(keywordExtractionSkill, messagingTemplate, cacheService));
         
         graph.addNode("video_retrieval", 
-            new VideoRetrievalNode(retrievalSkill, messagingTemplate));
+            new VideoRetrievalNode(retrievalSkill, messagingTemplate, cacheService));
         
         // Video Judgement Loop 子图节点
         graph.addNode("pre_sort_videos", 
-            new PreSortVideosNode(preferenceService));
+            new PreSortVideosNode(preferenceService, cacheService));
         graph.addNode("content_analysis", 
             new ContentAnalysisNode(messagingTemplate));
         graph.addNode("quantity_estimation", 
             new QuantityEstimationNode());
         graph.addNode("relevance_decision", 
-            new RelevanceDecisionNode(relevanceScorer, preferenceService));
+            new RelevanceDecisionNode(relevanceScorer, preferenceService, cacheService));
         graph.addNode("video_accepted", 
             new VideoAcceptedNode(databaseService, messagingTemplate));
         graph.addNode("progress_update", 

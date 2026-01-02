@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 用户偏好服务 - 记录和学习用户偏好
+ * 用户偏好服务 - 记录和学习用户偏好（同步到 Redis）
  */
 @Service
 @RequiredArgsConstructor
@@ -20,12 +20,14 @@ import java.util.Map;
 public class UserPreferenceService {
     
     private final UserPreferenceMapper preferenceMapper;
+    private final CacheService cacheService;
     
     /**
      * 增加视频偏好权重（点赞）
      */
     public void likeVideo(Long conversationId, String bvid) {
         increasePreference(conversationId, "video", bvid, 1);
+        cacheService.incrementPreference(conversationId, "video", bvid, 1);
     }
     
     /**
@@ -33,6 +35,7 @@ public class UserPreferenceService {
      */
     public void favoriteVideo(Long conversationId, String bvid) {
         increasePreference(conversationId, "video", bvid, 2);
+        cacheService.incrementPreference(conversationId, "video", bvid, 2);
     }
     
     /**
@@ -40,6 +43,7 @@ public class UserPreferenceService {
      */
     public void likeArtist(Long conversationId, String artistName) {
         increasePreference(conversationId, "artist", artistName, 1);
+        cacheService.incrementPreference(conversationId, "artist", artistName, 1);
     }
     
     /**
@@ -47,6 +51,7 @@ public class UserPreferenceService {
      */
     public void likeKeyword(Long conversationId, String keyword) {
         increasePreference(conversationId, "keyword", keyword, 1);
+        cacheService.incrementPreference(conversationId, "keyword", keyword, 1);
     }
     
     /**

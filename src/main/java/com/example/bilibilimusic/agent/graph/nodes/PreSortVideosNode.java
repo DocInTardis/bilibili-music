@@ -4,6 +4,7 @@ import com.example.bilibilimusic.agent.graph.AgentNode;
 import com.example.bilibilimusic.context.PlaylistContext;
 import com.example.bilibilimusic.context.UserIntent;
 import com.example.bilibilimusic.dto.VideoInfo;
+import com.example.bilibilimusic.service.CacheService;
 import com.example.bilibilimusic.service.UserPreferenceService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -13,7 +14,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 预排序节点：对搜索结果按优先级排序
+ * 预排序节点：对搜索结果按优先级排序（使用 Redis 偏好缓存）
  *
  * 对应原 PlaylistAgent.runVideoJudgementLoop 中的排序逻辑：
  * - 非合集优先
@@ -27,6 +28,7 @@ import java.util.Map;
 public class PreSortVideosNode implements AgentNode {
     
     private final UserPreferenceService preferenceService;
+    private final CacheService cacheService;
 
     @Override
     public NodeResult execute(PlaylistContext state) {
@@ -39,12 +41,12 @@ public class PreSortVideosNode implements AgentNode {
 
         log.info("[PreSort] 开始对 {} 个视频进行预排序", videos.size());
         
-        // 获取用户偏好权重
+        // 从 Redis 缓存获取用户偏好权重（个性化推荐）
         Long conversationId = state.getConversationId();
-        Map<String, Integer> artistPrefs = preferenceService.getArtistPreferences(conversationId);
-        Map<String, Integer> keywordPrefs = preferenceService.getKeywordPreferences(conversationId);
+        Map<String, Integer> artistPrefs = cacheService.getArtistPreferences(conversationId);
+        Map<String, Integer> keywordPrefs = cacheService.getKeywordPreferences(conversationId);
         
-        log.debug("[PreSort] 加载偏好权重 - 艺人: {}, 关键词: {}", artistPrefs.size(), keywordPrefs.size());
+        log.info("[PreSort] 加载 Redis 偏好权重 - 艺人: {}, 关键词: {}", artistPrefs.size(), keywordPrefs.size());
 
         videos.sort(Comparator.comparing((VideoInfo v) -> isPlaylistStyle(v))
             .thenComparing((VideoInfo v) -> -calculateKeywordMatchScoreWithPreference(v, intent, artistPrefs, keywordPrefs))

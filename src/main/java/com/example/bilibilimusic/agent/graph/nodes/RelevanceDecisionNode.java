@@ -5,6 +5,7 @@ import com.example.bilibilimusic.context.PlaylistContext;
 import com.example.bilibilimusic.context.UserIntent;
 import com.example.bilibilimusic.dto.MusicUnit;
 import com.example.bilibilimusic.dto.VideoInfo;
+import com.example.bilibilimusic.service.CacheService;
 import com.example.bilibilimusic.service.UserPreferenceService;
 import com.example.bilibilimusic.skill.VideoRelevanceScorer;
 import lombok.RequiredArgsConstructor;
@@ -15,7 +16,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 相关性决策节点（RelevanceDecision）
+ * 相关性决策节点（使用 Redis 缓存和偏好）
  * 使用打分制判断视频相关性（含偏好加成）
  */
 @Slf4j
@@ -24,6 +25,7 @@ public class RelevanceDecisionNode implements AgentNode {
     
     private final VideoRelevanceScorer scorer;
     private final UserPreferenceService preferenceService;
+    private final CacheService cacheService;
 
     @Override
     public NodeResult execute(PlaylistContext state) {
@@ -37,14 +39,24 @@ public class RelevanceDecisionNode implements AgentNode {
         state.setCurrentStage(PlaylistContext.Stage.CANDIDATE_DECISION);
 
         UserIntent intent = state.getIntent();
-        
-        // 获取偏好权重
         Long conversationId = state.getConversationId();
-        Map<String, Integer> artistPrefs = preferenceService.getArtistPreferences(conversationId);
-        Map<String, Integer> keywordPrefs = preferenceService.getKeywordPreferences(conversationId);
         
-        // 使用打分制判断相关性（含偏好加成）
-        VideoRelevanceScorer.ScoringResult scoringResult = scorer.scoreVideo(video, intent, artistPrefs, keywordPrefs);
+        // 尝试从 Redis 缓存获取 LLM 判断结果
+        VideoRelevanceScorer.ScoringResult scoringResult = cacheService.getCachedLLMJudgement(video.getBvid(), intent);
+        
+        if (scoringResult != null) {
+            log.debug("[RelDecision] 命中 LLM 缓存: bvid={}, score={}", video.getBvid(), scoringResult.getScore());
+        } else {
+            // 缓存未命中，从 Redis 获取偏好权重
+            Map<String, Integer> artistPrefs = cacheService.getArtistPreferences(conversationId);
+            Map<String, Integer> keywordPrefs = cacheService.getKeywordPreferences(conversationId);
+            
+            // 使用打分制判断相关性（含偏好加成）
+            scoringResult = scorer.scoreVideo(video, intent, artistPrefs, keywordPrefs);
+            
+            // 缓存 LLM 判断结果
+            cacheService.cacheLLMJudgement(video.getBvid(), intent, scoringResult);
+        }
         boolean accepted = scoringResult.isAccepted();
         int score = scoringResult.getScore();
         String decisionReason = scoringResult.getReason();

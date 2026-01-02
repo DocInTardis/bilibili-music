@@ -2,16 +2,18 @@ package com.example.bilibilimusic.agent.graph.nodes;
 
 import com.example.bilibilimusic.agent.graph.AgentNode;
 import com.example.bilibilimusic.context.PlaylistContext;
+import com.example.bilibilimusic.service.CacheService;
 import com.example.bilibilimusic.skill.KeywordExtractionSkill;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
- * 关键词提取节点
+ * 关键词提取节点（集成缓存）
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -19,6 +21,7 @@ public class KeywordExtractionNode implements AgentNode {
     
     private final KeywordExtractionSkill keywordExtractionSkill;
     private final SimpMessagingTemplate messagingTemplate;
+    private final CacheService cacheService;
     
     @Override
     public NodeResult execute(PlaylistContext state) {
@@ -26,8 +29,24 @@ public class KeywordExtractionNode implements AgentNode {
         
         state.setCurrentStage(PlaylistContext.Stage.KEYWORD_EXTRACTION);
         
-        // 调用Skill提取关键词
-        keywordExtractionSkill.execute(state);
+        String query = state.getIntent().getQuery();
+        
+        // 尝试从缓存获取关键词
+        List<String> cachedKeywords = cacheService.getCachedKeywords(query);
+        
+        if (cachedKeywords != null && !cachedKeywords.isEmpty()) {
+            log.info("[KeywordNode] 命中关键词缓存: {}", cachedKeywords);
+            state.getIntent().setKeywords(cachedKeywords);
+        } else {
+            // 缓存未命中，调用Skill提取关键词
+            keywordExtractionSkill.execute(state);
+            
+            // 缓存提取结果
+            List<String> keywords = state.getIntent().getKeywords();
+            if (keywords != null && !keywords.isEmpty()) {
+                cacheService.cacheKeywords(query, keywords);
+            }
+        }
         
         // 推送关键词提取结果
         pushKeywordUpdate(state);

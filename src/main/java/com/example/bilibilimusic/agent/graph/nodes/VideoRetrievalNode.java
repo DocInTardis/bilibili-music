@@ -2,6 +2,8 @@ package com.example.bilibilimusic.agent.graph.nodes;
 
 import com.example.bilibilimusic.agent.graph.AgentNode;
 import com.example.bilibilimusic.context.PlaylistContext;
+import com.example.bilibilimusic.dto.VideoInfo;
+import com.example.bilibilimusic.service.CacheService;
 import com.example.bilibilimusic.skill.RetrievalSkill;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -9,10 +11,11 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
- * 视频检索节点
+ * 视频检索节点（集成缓存）
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -20,6 +23,7 @@ public class VideoRetrievalNode implements AgentNode {
     
     private final RetrievalSkill retrievalSkill;
     private final SimpMessagingTemplate messagingTemplate;
+    private final CacheService cacheService;
     
     @Override
     public NodeResult execute(PlaylistContext state) {
@@ -27,12 +31,25 @@ public class VideoRetrievalNode implements AgentNode {
         
         state.setCurrentStage(PlaylistContext.Stage.VIDEO_RETRIEVAL);
         
-        // 调用Skill检索
-        boolean success = retrievalSkill.execute(state);
+        String query = state.getIntent().getQuery();
         
-        if (!success || state.getSearchResults().isEmpty()) {
-            log.warn("[RetrievalNode] 检索失败或无结果");
-            return NodeResult.failure("no_results");
+        // 尝试从缓存获取搜索结果
+        List<VideoInfo> cachedResults = cacheService.getCachedSearchResults(query);
+        
+        if (cachedResults != null && !cachedResults.isEmpty()) {
+            log.info("[RetrievalNode] 命中搜索缓存，视频数: {}", cachedResults.size());
+            state.setSearchResults(cachedResults);
+        } else {
+            // 缓存未命中，调用Skill检索
+            boolean success = retrievalSkill.execute(state);
+            
+            if (!success || state.getSearchResults().isEmpty()) {
+                log.warn("[RetrievalNode] 检索失败或无结果");
+                return NodeResult.failure("no_results");
+            }
+            
+            // 缓存搜索结果
+            cacheService.cacheSearchResults(query, state.getSearchResults());
         }
         
         // 推送搜索结果
