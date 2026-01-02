@@ -6,6 +6,7 @@ import com.example.bilibilimusic.dto.ExecutionTrace;
 import com.example.bilibilimusic.dto.NodeTrace;
 import com.example.bilibilimusic.service.AgentBehaviorLogService;
 import com.example.bilibilimusic.service.AgentMetricsService;
+import com.example.bilibilimusic.service.ContextPersistenceService;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,6 +26,7 @@ public class PlaylistAgentGraph {
     
     private final AgentBehaviorLogService behaviorLogService;
     private final AgentMetricsService metricsService;
+    private final ContextPersistenceService contextPersistenceService;
     
     private final Map<String, AgentNode> nodes = new HashMap<>();
     private final Map<String, ConditionalEdge> edges = new HashMap<>();
@@ -139,6 +141,14 @@ public class PlaylistAgentGraph {
                         nodeDuration
                     );
                     
+                    // 在每个节点成功执行后保存一次核心状态快照（支持回放与断点分析）
+                    int step = executionTrace.getNodeTraces() != null ? executionTrace.getNodeTraces().size() : 0;
+                    contextPersistenceService.saveNodeSnapshot(
+                        state.getPlaylistId(),
+                        executionTrace.getExecutionId(),
+                        step,
+                        state
+                    );
                 } catch (Exception e) {
                     // 记录节点失败
                     long nodeEndTime = System.currentTimeMillis();

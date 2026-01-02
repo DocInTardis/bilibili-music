@@ -35,6 +35,8 @@ public class ContextPersistenceService {
     
     // 上下文 TTL（24小时）
     private static final long CONTEXT_TTL_HOURS = 24;
+    // 节点快照 TTL（同样 24 小时，主要用于调试回放）
+    private static final long SNAPSHOT_TTL_HOURS = 24;
     
     /**
      * 保存执行上下文（只持久化 AgentState）
@@ -116,9 +118,40 @@ public class ContextPersistenceService {
     }
     
     /**
+     * 节点级快照：在每个 Agent Node 执行后保存一次核心状态
+     * 
+     * 用途：
+     * 1. Debug Replay：根据 executionId + step 回放执行过程
+     * 2. 手动 Resume：从某个节点快照恢复 AgentState 后重新执行图
+     */
+    public void saveNodeSnapshot(Long playlistId, String executionId, int step, PlaylistContext context) {
+        try {
+            if (playlistId == null || executionId == null) {
+                return;
+            }
+            String key = getSnapshotKey(playlistId, executionId, step);
+            String json = objectMapper.writeValueAsString(context.getState());
+            RBucket<String> bucket = redissonClient.getBucket(key);
+            bucket.set(json, SNAPSHOT_TTL_HOURS, TimeUnit.HOURS);
+            log.debug("[ContextPersist] 保存节点快照: playlistId={}, executionId={}, step={}, stage={}",
+                playlistId, executionId, step, context.getCurrentStage());
+        } catch (JsonProcessingException e) {
+            log.error("[ContextPersist] 序列化节点快照失败: playlistId={}, executionId={}, step={}",
+                playlistId, executionId, step, e);
+        }
+    }
+
+    /**
      * 生成上下文 Key
      */
     private String getContextKey(Long playlistId) {
         return "agent:context:" + playlistId;
+    }
+    
+    /**
+     * 生成节点快照 Key
+     */
+    private String getSnapshotKey(Long playlistId, String executionId, int step) {
+        return "agent:snapshot:" + playlistId + ":" + executionId + ":" + step;
     }
 }

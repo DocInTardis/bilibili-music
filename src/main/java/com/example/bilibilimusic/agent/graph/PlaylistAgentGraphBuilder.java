@@ -6,6 +6,7 @@ import com.example.bilibilimusic.agent.graph.nodes.*;
 import com.example.bilibilimusic.service.AgentBehaviorLogService;
 import com.example.bilibilimusic.service.AgentMetricsService;
 import com.example.bilibilimusic.service.CacheService;
+import com.example.bilibilimusic.service.ContextPersistenceService;
 import com.example.bilibilimusic.service.DatabaseService;
 import com.example.bilibilimusic.service.UserPreferenceService;
 import com.example.bilibilimusic.skill.*;
@@ -35,12 +36,13 @@ public class PlaylistAgentGraphBuilder {
     private final CacheService cacheService;
     private final AgentBehaviorLogService behaviorLogService;
     private final AgentMetricsService metricsService;
+    private final ContextPersistenceService contextPersistenceService;
     
     /**
      * 构建 PlaylistAgent 状态图
      */
     public PlaylistAgentGraph build() {
-        PlaylistAgentGraph graph = new PlaylistAgentGraph(behaviorLogService, metricsService);
+        PlaylistAgentGraph graph = new PlaylistAgentGraph(behaviorLogService, metricsService, contextPersistenceService);
         
         // 1. 添加所有节点
         graph.addNode("intent_understanding", 
