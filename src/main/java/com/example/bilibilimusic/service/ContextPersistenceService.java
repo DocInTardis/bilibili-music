@@ -1,5 +1,6 @@
 package com.example.bilibilimusic.service;
 
+import com.example.bilibilimusic.context.AgentState;
 import com.example.bilibilimusic.context.PlaylistContext;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -12,12 +13,17 @@ import org.springframework.stereotype.Service;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Agent 执行上下文持久化服务
+ * Agent 执行上下文持久化服务（优化版）
  * 
  * 功能：
  * 1. 断点续跑：Agent 重启后恢复上次执行状态
  * 2. 状态快照：定期保存执行进度
  * 3. 异常恢复：捕获异常前保存现场
+ * 
+ * 优化：
+ * - 只持久化 AgentState（核心状态）
+ * - WorkingMemory/ExecutionControl/StreamingState 不持久化
+ * - 减少 Redis 存储开销，提高序列化效率
  */
 @Service
 @RequiredArgsConstructor
@@ -31,12 +37,13 @@ public class ContextPersistenceService {
     private static final long CONTEXT_TTL_HOURS = 24;
     
     /**
-     * 保存执行上下文
+     * 保存执行上下文（只持久化 AgentState）
      */
     public void saveContext(Long playlistId, PlaylistContext context) {
         try {
             String key = getContextKey(playlistId);
-            String json = objectMapper.writeValueAsString(context);
+            // 只序列化 AgentState，不序列化 WorkingMemory
+            String json = objectMapper.writeValueAsString(context.getState());
             
             RBucket<String> bucket = redissonClient.getBucket(key);
             bucket.set(json, CONTEXT_TTL_HOURS, TimeUnit.HOURS);
@@ -50,6 +57,8 @@ public class ContextPersistenceService {
     
     /**
      * 加载执行上下文（用于断点续跑）
+     * 
+     * 注意：只恢复 AgentState，WorkingMemory 需要重新生成
      */
     public PlaylistContext loadContext(Long playlistId) {
         try {
@@ -62,7 +71,13 @@ public class ContextPersistenceService {
                 return null;
             }
             
-            PlaylistContext context = objectMapper.readValue(json, PlaylistContext.class);
+            // 反序列化 AgentState
+            AgentState state = objectMapper.readValue(json, AgentState.class);
+            
+            // 重建 PlaylistContext
+            PlaylistContext context = new PlaylistContext();
+            context.setState(state);
+            
             log.info("[ContextPersist] 加载执行上下文: playlistId={}, stage={}", 
                 playlistId, context.getCurrentStage());
             
