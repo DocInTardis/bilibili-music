@@ -27,50 +27,50 @@ public class UserPreferenceService {
      * 增加视频偏好权重（点赞）
      */
     public void likeVideo(Long conversationId, String bvid) {
-        increasePreference(conversationId, "video", bvid, 1);
-        cacheService.incrementPreference(conversationId, "video", bvid, 1);
+        adjustPreference(conversationId, "video", bvid, 1);
     }
-    
+        
     /**
      * 增加视频偏好权重（收藏）
      */
     public void favoriteVideo(Long conversationId, String bvid) {
-        increasePreference(conversationId, "video", bvid, 2);
-        cacheService.incrementPreference(conversationId, "video", bvid, 2);
+        adjustPreference(conversationId, "video", bvid, 2);
     }
-    
+        
     /**
      * 增加艺人偏好权重
      */
     public void likeArtist(Long conversationId, String artistName) {
-        increasePreference(conversationId, "artist", artistName, 1);
-        cacheService.incrementPreference(conversationId, "artist", artistName, 1);
+        adjustPreference(conversationId, "artist", artistName, 1);
     }
-    
+        
     /**
      * 增加关键词偏好权重
      */
     public void likeKeyword(Long conversationId, String keyword) {
-        increasePreference(conversationId, "keyword", keyword, 1);
-        cacheService.incrementPreference(conversationId, "keyword", keyword, 1);
+        adjustPreference(conversationId, "keyword", keyword, 1);
     }
-    
-    /**
-     * 通用增加偏好权重方法
-     */
-    private void increasePreference(Long conversationId, String type, String target, int deltaWeight) {
-        UserPreference existing = preferenceMapper.findByConversationAndTypeAndTarget(conversationId, type, target);
         
+    /**
+     * 通用偏好权重调整方法（支持正负增量）
+     */
+    public void adjustPreference(Long conversationId, String type, String target, int deltaWeight) {
+        if (deltaWeight == 0) {
+            return;
+        }
+        UserPreference existing = preferenceMapper.findByConversationAndTypeAndTarget(conversationId, type, target);
+            
         if (existing != null) {
-            // 更新现有偏好
-            existing.setWeightScore(existing.getWeightScore() + deltaWeight);
+            int oldWeight = existing.getWeightScore() != null ? existing.getWeightScore() : 0;
+            int newWeight = oldWeight + deltaWeight;
+            existing.setWeightScore(newWeight);
             existing.setInteractionCount(existing.getInteractionCount() + 1);
             existing.setLastUpdated(LocalDateTime.now());
             preferenceMapper.updateById(existing);
             log.debug("[Preference] 更新偏好: {} {} (权重: {} -> {})", 
-                type, target, existing.getWeightScore() - deltaWeight, existing.getWeightScore());
+                type, target, oldWeight, newWeight);
         } else {
-            // 创建新偏好
+            // 创建新偏好（允许负权重，表示强烈不喜欢）
             UserPreference newPref = UserPreference.builder()
                 .conversationId(conversationId)
                 .preferenceType(type)
@@ -83,8 +83,11 @@ public class UserPreferenceService {
             preferenceMapper.insert(newPref);
             log.debug("[Preference] 新增偏好: {} {} (权重: {})", type, target, deltaWeight);
         }
+            
+        // 同步到 Redis ZSet，支持负向增量
+        cacheService.incrementPreference(conversationId, type, target, deltaWeight);
     }
-    
+        
     /**
      * 获取会话的所有偏好权重映射
      * @return Map<type:target, weight>

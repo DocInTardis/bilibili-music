@@ -90,21 +90,16 @@ public class UserBehaviorFeedbackService {
         String type = event.getTargetType();
         String target = event.getTargetId();
         Long conversationId = event.getConversationId();
-        
-        // 根据类型调用对应的更新方法
-        if (weightDelta > 0) {
-            // 正向行为
-            if ("video".equals(type)) {
-                preferenceService.likeVideo(conversationId, target);
-            } else if ("artist".equals(type)) {
-                preferenceService.likeArtist(conversationId, target);
-            } else if ("keyword".equals(type)) {
-                preferenceService.likeKeyword(conversationId, target);
-            }
+            
+        int delta = (int) Math.round(weightDelta);
+        if (delta == 0) {
+            return;
         }
-        // 负向行为可以考虑扩展 preferenceService 添加负向反馈方法
+            
+        // 直接通过 UserPreferenceService 调整偏好（支持正负权重）
+        preferenceService.adjustPreference(conversationId, type, target, delta);
     }
-    
+        
     /**
      * 判断是否处于冷启动阶段
      * 
