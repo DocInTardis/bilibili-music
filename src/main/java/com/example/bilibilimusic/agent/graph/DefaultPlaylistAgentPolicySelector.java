@@ -5,6 +5,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.util.Arrays;
+import java.util.Set;
+import java.util.stream.Collectors;
+
 /**
  * 默认的策略选择器：根据请求参数选择具体策略实现。
  */
@@ -15,20 +19,33 @@ public class DefaultPlaylistAgentPolicySelector implements PlaylistAgentPolicySe
 
     private final DefaultPlaylistAgentPolicy defaultPlaylistAgentPolicy;
     private final LowCostPlaylistAgentPolicy lowCostPlaylistAgentPolicy;
+    private final NoSummaryPlaylistAgentPolicy noSummaryPlaylistAgentPolicy;
 
     @Override
     public PlaylistAgentPolicy selectPolicy(PlaylistRequest request) {
         String mode = request != null ? request.getMode() : null;
         String normalizedMode = mode != null ? mode.trim().toLowerCase() : "default";
 
+        // 支持多标签模式：例如 "low_cost,no_summary"，形成简单的多场景策略矩阵
+        Set<String> tags = Arrays.stream(normalizedMode.split("[,;|+]"))
+            .map(String::trim)
+            .filter(s -> !s.isEmpty())
+            .collect(Collectors.toSet());
+
+        boolean lowCost = tags.contains("low_cost");
+        boolean noSummary = tags.contains("no_summary");
+
         PlaylistAgentPolicy policy;
-        if ("low_cost".equals(normalizedMode)) {
+        if (noSummary) {
+            // “无摘要”场景优先于成本维度：结构差异更大
+            policy = noSummaryPlaylistAgentPolicy;
+        } else if (lowCost) {
             policy = lowCostPlaylistAgentPolicy;
         } else {
             policy = defaultPlaylistAgentPolicy;
         }
 
-        log.info("[PolicySelector] 选择策略: mode={}, policy={}", normalizedMode, policy.getClass().getSimpleName());
+        log.info("[PolicySelector] 选择策略: rawMode={}, tags={}, policy={}", mode, tags, policy.getClass().getSimpleName());
         return policy;
     }
 }
