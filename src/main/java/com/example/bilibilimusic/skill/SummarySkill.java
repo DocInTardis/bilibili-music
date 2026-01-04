@@ -34,8 +34,9 @@ public class SummarySkill implements Skill {
     public boolean execute(PlaylistContext context) {
         try {
             String mode = context.getIntent() != null ? context.getIntent().getMode() : null;
-            boolean lowCost = mode != null && "low_cost".equalsIgnoreCase(mode.trim());
-            log.info("[SummarySkill] 开始生成歌单总结 (mode={})", mode);
+            java.util.Set<String> modeTags = parseModeTags(mode);
+            boolean lowCost = modeTags.contains("low_cost");
+            log.info("[SummarySkill] 开始生成歌单总结 (mode={}, tags={})", mode, modeTags);
             context.setCurrentStage(PlaylistContext.Stage.SUMMARIZING);
                 
             List<VideoInfo> videos = context.getSelectedVideos();
@@ -66,7 +67,17 @@ public class SummarySkill implements Skill {
             return false;
         }
     }
-    
+        
+    private java.util.Set<String> parseModeTags(String mode) {
+        if (mode == null || mode.isBlank()) {
+            return java.util.Collections.emptySet();
+        }
+        return java.util.Arrays.stream(mode.toLowerCase().split("[,;|+]"))
+            .map(String::trim)
+            .filter(s -> !s.isEmpty())
+            .collect(java.util.stream.Collectors.toSet());
+    }
+        
     /**
      * 生成歌单总结
      */

@@ -159,7 +159,8 @@ public class CurationSkill implements Skill {
     public boolean judgeVideoWithLLM(VideoInfo video, com.example.bilibilimusic.context.UserIntent intent) {
         try {
             String mode = intent != null ? intent.getMode() : null;
-            boolean lowCost = mode != null && "low_cost".equalsIgnoreCase(mode.trim());
+            java.util.Set<String> modeTags = parseModeTags(mode);
+            boolean lowCost = modeTags.contains("low_cost");
             if (lowCost) {
                 log.info("[CurationSkill] 低成本模式：跳过 LLM 边界判断，默认拒绝边界视频: {}", video.getTitle());
                 return false;
@@ -203,7 +204,17 @@ public class CurationSkill implements Skill {
         // LLM失败时，默认拒绝
         return false;
     }
-    
+        
+    private java.util.Set<String> parseModeTags(String mode) {
+        if (mode == null || mode.isBlank()) {
+            return java.util.Collections.emptySet();
+        }
+        return java.util.Arrays.stream(mode.toLowerCase().split("[,;|+]"))
+            .map(String::trim)
+            .filter(s -> !s.isEmpty())
+            .collect(java.util.stream.Collectors.toSet());
+    }
+        
     /**
      * 构建判断 Prompt
      */

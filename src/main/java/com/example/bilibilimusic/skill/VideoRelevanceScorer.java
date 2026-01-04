@@ -104,13 +104,19 @@ public class VideoRelevanceScorer {
                                     Long conversationId) {
         ScoringResult result = new ScoringResult();
         result.setVideo(video);
-    
+            
         ScoringFeatures features = new ScoringFeatures();
         result.setFeatures(features);
-            
+                    
         int totalScore = 0;
         List<String> reasons = new ArrayList<>();
-            
+        
+        String mode = intent != null ? intent.getMode() : null;
+        java.util.Set<String> modeTags = parseModeTags(mode);
+        boolean strict = modeTags.contains("strict");
+        boolean explore = modeTags.contains("explore");
+        result.setAcceptThreshold(strict ? 5 : 0);
+                    
         // 1. 负关键词过滤（优先级最高，直接拒绝）
         if (containsNegativeKeywords(video)) {
             features.setNegativeKeywordHit(true);
@@ -199,15 +205,18 @@ public class VideoRelevanceScorer {
         if (conversationId != null) {
             boolean isNewVideo = !hasPreference(video.getBvid(), conversationId);
             double explorationBonus = behaviorFeedbackService.getExplorationBonus(isNewVideo, conversationId);
-                
+                        
             if (explorationBonus > 0) {
+                if (explore) {
+                    explorationBonus *= 1.5;
+                }
                 int bonusInt = (int) explorationBonus;
                 totalScore += bonusInt;
                 features.setExplorationBonus(bonusInt);
                 reasons.add(String.format("探索加成: +%.0f", explorationBonus));
             }
         }
-            
+                    
         result.setScore(totalScore);
         result.setReason(String.join("; ", reasons));
         result.setReject(totalScore < 0); // 负分直接拒绝
@@ -228,6 +237,16 @@ public class VideoRelevanceScorer {
         return prefs.containsKey(key);
     }
     
+    private java.util.Set<String> parseModeTags(String mode) {
+        if (mode == null || mode.isBlank()) {
+            return java.util.Collections.emptySet();
+        }
+        return java.util.Arrays.stream(mode.toLowerCase().split("[,;|+]"))
+            .map(String::trim)
+            .filter(s -> !s.isEmpty())
+            .collect(java.util.stream.Collectors.toSet());
+    }
+            
     /**
      * 检查是否包含负关键词
      */
@@ -579,14 +598,19 @@ public class VideoRelevanceScorer {
         private int score;
         private String reason;
         private boolean reject; // 是否直接拒绝
-
+        
+        /**
+         * 接受阈值，支持 strict 等模式调整（默认 0）
+         */
+        private int acceptThreshold = 0;
+        
         /**
          * 评分特征向量，用于调试/回放/离线分析
          */
         private ScoringFeatures features;
-        
+                
         public boolean isAccepted() {
-            return !reject && score > 0;
+            return !reject && score >= acceptThreshold;
         }
     }
 

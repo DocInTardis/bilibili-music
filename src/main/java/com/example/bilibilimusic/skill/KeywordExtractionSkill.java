@@ -32,9 +32,10 @@ public class KeywordExtractionSkill implements Skill {
         try {
             String originalQuery = context.getIntent().getQuery();
             String mode = context.getIntent() != null ? context.getIntent().getMode() : null;
-            boolean lowCost = mode != null && "low_cost".equalsIgnoreCase(mode.trim());
-            log.info("[KeywordExtractionSkill] 原始查询: {} (mode={})", originalQuery, mode);
-                
+            java.util.Set<String> modeTags = parseModeTags(mode);
+            boolean lowCost = modeTags.contains("low_cost");
+            log.info("[KeywordExtractionSkill] 原始查询: {} (mode={}, tags={})", originalQuery, mode, modeTags);
+                            
             String extractedKeyword;
             if (lowCost) {
                 // 低成本模式：跳过 LLM，直接走规则后处理
@@ -255,7 +256,17 @@ public class KeywordExtractionSkill implements Skill {
             """
             .trim();
     }
-        
+            
+    private java.util.Set<String> parseModeTags(String mode) {
+        if (mode == null || mode.isBlank()) {
+            return java.util.Collections.emptySet();
+        }
+        return java.util.Arrays.stream(mode.toLowerCase().split("[,;|+]"))
+            .map(String::trim)
+            .filter(s -> !s.isEmpty())
+            .collect(java.util.stream.Collectors.toSet());
+    }
+            
     private KeywordResult parseKeywordResult(String content) {
         try {
             // 方法1：尝试标准JSON解析
