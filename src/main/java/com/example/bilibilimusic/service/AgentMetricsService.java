@@ -174,6 +174,9 @@ public class AgentMetricsService {
             if (metrics.getLlmTotalTime() != null) {
                 addToRedisTimer(prefix + "llm:duration", metrics.getLlmTotalTime());
             }
+            if (Boolean.TRUE.equals(metrics.getTargetReached())) {
+                incrementRedisCounterBy(prefix + "success:playlists", 1L);
+            }
         } catch (Exception e) {
             log.error("[Metrics] 策略指标聚合失败: strategy={}", strategy, e);
         }

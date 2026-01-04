@@ -1,6 +1,7 @@
 package com.example.bilibilimusic.skill;
 
 import com.example.bilibilimusic.context.PlaylistContext;
+import com.example.bilibilimusic.service.LlmBudgetService;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Data;
@@ -22,6 +23,7 @@ import java.util.regex.Matcher;
 public class KeywordExtractionSkill implements Skill {
     
     private final WebClient ollamaWebClient;
+    private final LlmBudgetService llmBudgetService;
     private final ObjectMapper objectMapper = new ObjectMapper();
     
     @Value("${ollama.model}")
@@ -35,9 +37,20 @@ public class KeywordExtractionSkill implements Skill {
             java.util.Set<String> modeTags = parseModeTags(mode);
             boolean lowCost = modeTags.contains("low_cost");
             log.info("[KeywordExtractionSkill] 原始查询: {} (mode={}, tags={})", originalQuery, mode, modeTags);
-                            
+
+            LlmBudgetService.BudgetStatus budgetStatus = LlmBudgetService.BudgetStatus.AVAILABLE;
+            if (!lowCost) {
+                budgetStatus = llmBudgetService.checkAndConsume(context.getConversationId(), context.getUserId());
+                if (budgetStatus != LlmBudgetService.BudgetStatus.AVAILABLE) {
+                    log.info("[KeywordExtractionSkill] LLM 预算{}，切换为规则模式: conversationId={}, userId={}, status={}",
+                        budgetStatus == LlmBudgetService.BudgetStatus.EXCEEDED ? "已耗尽" : "接近耗尽",
+                        context.getConversationId(), context.getUserId(), budgetStatus);
+                }
+            }
+
             String extractedKeyword;
-            if (lowCost) {
+            boolean useLlm = !lowCost && budgetStatus == LlmBudgetService.BudgetStatus.AVAILABLE;
+            if (!useLlm) {
                 // 低成本模式：跳过 LLM，直接走规则后处理
                 log.info("[KeywordExtractionSkill] 低成本模式：跳过 LLM 提取，直接使用规则清洗原始查询");
                 extractedKeyword = originalQuery;

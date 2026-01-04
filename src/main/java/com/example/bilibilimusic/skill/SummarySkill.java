@@ -2,6 +2,7 @@ package com.example.bilibilimusic.skill;
 
 import com.example.bilibilimusic.context.PlaylistContext;
 import com.example.bilibilimusic.dto.VideoInfo;
+import com.example.bilibilimusic.service.LlmBudgetService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -26,6 +27,7 @@ import java.util.Map;
 public class SummarySkill implements Skill {
     
     private final WebClient ollamaWebClient;
+    private final LlmBudgetService llmBudgetService;
     
     @Value("${ollama.model}")
     private String model;
@@ -38,6 +40,16 @@ public class SummarySkill implements Skill {
             boolean lowCost = modeTags.contains("low_cost");
             log.info("[SummarySkill] 开始生成歌单总结 (mode={}, tags={})", mode, modeTags);
             context.setCurrentStage(PlaylistContext.Stage.SUMMARIZING);
+
+            LlmBudgetService.BudgetStatus budgetStatus = LlmBudgetService.BudgetStatus.AVAILABLE;
+            if (!lowCost) {
+                budgetStatus = llmBudgetService.checkAndConsume(context.getConversationId(), context.getUserId());
+                if (budgetStatus != LlmBudgetService.BudgetStatus.AVAILABLE) {
+                    log.info("[SummarySkill] LLM 预算{}，降级为规则总结: conversationId={}, userId={}, status={}",
+                        budgetStatus == LlmBudgetService.BudgetStatus.EXCEEDED ? "已耗尽" : "接近耗尽",
+                        context.getConversationId(), context.getUserId(), budgetStatus);
+                }
+            }
                 
             List<VideoInfo> videos = context.getSelectedVideos();
             if (videos.isEmpty()) {
@@ -47,7 +59,8 @@ public class SummarySkill implements Skill {
             }
                 
             String summary;
-            if (lowCost) {
+            boolean useLlm = !lowCost && budgetStatus == LlmBudgetService.BudgetStatus.AVAILABLE;
+            if (!useLlm) {
                 // 低成本模式：跳过 LLM，直接使用降级总结
                 log.info("[SummarySkill] 低成本模式：跳过 LLM，总结使用降级方案");
                 summary = buildFallbackSummary(videos, context.getIntent());

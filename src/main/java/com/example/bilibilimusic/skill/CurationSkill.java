@@ -2,6 +2,7 @@ package com.example.bilibilimusic.skill;
 
 import com.example.bilibilimusic.context.PlaylistContext;
 import com.example.bilibilimusic.dto.VideoInfo;
+import com.example.bilibilimusic.service.LlmBudgetService;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -33,6 +34,7 @@ public class CurationSkill implements Skill {
     private final WebClient ollamaWebClient;
     private final VideoRelevanceScorer relevanceScorer;
     private final VideoDuplicateFilter duplicateFilter;
+    private final LlmBudgetService llmBudgetService;
     private final ObjectMapper objectMapper = new ObjectMapper();
     
     @Value("${ollama.model}")
@@ -95,10 +97,19 @@ public class CurationSkill implements Skill {
                     // 低分直接拒绝
                     log.debug("[CurationSkill] 低分直接拒绝 ({}): {}", result.getScore(), video.getTitle());
                 } else {
-                    // 边界情况，调用LLM做最终判断
-                    log.info("[CurationSkill] 边界分数 ({})，调用LLM判断: {}", 
+                    // 边界情况，调用LLM做最终判断（受 low_cost 和配额控制）
+                    log.info("[CurationSkill] 边界分数 ({})，准备调用LLM判断: {}", 
                         result.getScore(), video.getTitle());
-                    
+                
+                    LlmBudgetService.BudgetStatus budgetStatus = llmBudgetService.checkAndConsume(
+                        context.getConversationId(), context.getUserId());
+                    if (budgetStatus != LlmBudgetService.BudgetStatus.AVAILABLE) {
+                        log.info("[CurationSkill] LLM 预算{}，跳过边界 LLM 判断，默认拒绝: conversationId={}, userId={}, status={}, video={}",
+                            budgetStatus == LlmBudgetService.BudgetStatus.EXCEEDED ? "已耗尽" : "接近耗尽",
+                            context.getConversationId(), context.getUserId(), budgetStatus, video.getTitle());
+                        continue;
+                    }
+                                     
                     boolean llmAccept = judgeVideoWithLLM(video, context.getIntent());
                     if (llmAccept) {
                         selectedVideos.add(video);
