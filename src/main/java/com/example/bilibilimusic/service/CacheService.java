@@ -40,6 +40,8 @@ public class CacheService {
     private static final long KEYWORD_CACHE_TTL = 7200;      // 2小时
     private static final long LLM_RESULT_CACHE_TTL = 86400;  // 24小时
     private static final long PREFERENCE_CACHE_TTL = 604800; // 7天
+    // 行为序列状态 TTL（与偏好保持一致）
+    private static final long BEHAVIOR_SEQ_TTL = PREFERENCE_CACHE_TTL;
     
     // ==================== 1. Query 级缓存 ====================
     
@@ -283,6 +285,52 @@ public class CacheService {
         String key = getUserPreferenceKey(conversationId);
         redisTemplate.delete(key);
         log.debug("[Cache] 清除用户偏好缓存: conversationId={}", conversationId);
+    }
+    
+    // ==================== 4. 行为序列特征缓存 ====================
+    
+    /**
+     * 更新连续负向行为计数（例如连续跳过同一艺人）
+     */
+    public void updateConsecutiveNegativeCount(Long conversationId, String targetType, String targetId, boolean negative) {
+        if (conversationId == null || targetType == null || targetId == null) {
+            return;
+        }
+        String key = buildConsecutiveNegativeKey(conversationId, targetType, targetId);
+        try {
+            if (negative) {
+                stringRedisTemplate.opsForValue().increment(key);
+            } else {
+                stringRedisTemplate.opsForValue().set(key, "0");
+            }
+            stringRedisTemplate.expire(key, BEHAVIOR_SEQ_TTL, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            log.warn("[Cache] 更新连续负向行为计数失败: key={}", key, e);
+        }
+    }
+    
+    /**
+     * 获取连续负向行为计数
+     */
+    public int getConsecutiveNegativeCount(Long conversationId, String targetType, String targetId) {
+        if (conversationId == null || targetType == null || targetId == null) {
+            return 0;
+        }
+        String key = buildConsecutiveNegativeKey(conversationId, targetType, targetId);
+        try {
+            String value = stringRedisTemplate.opsForValue().get(key);
+            if (value == null) {
+                return 0;
+            }
+            return Integer.parseInt(value);
+        } catch (Exception e) {
+            log.warn("[Cache] 读取连续负向行为计数失败: key={}", key, e);
+            return 0;
+        }
+    }
+    
+    private String buildConsecutiveNegativeKey(Long conversationId, String targetType, String targetId) {
+        return "behavior:seq:neg:" + conversationId + ":" + targetType + ":" + targetId;
     }
     
     // ==================== 工具方法 ====================

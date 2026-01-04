@@ -53,14 +53,37 @@ public class UserBehaviorFeedbackService {
                 
         // 更新偏好权重
         updatePreference(event, weightDelta);
+        
+        // 更新序列特征（例如连续负向行为计数）
+        updateSequentialFeatures(event);
                 
         // 根据行为类型执行智能缓存失效（例如负向行为清理相关视频的LLM判断缓存）
         handleSmartCacheInvalidation(event);
-                
+                    
         // 标记为已应用
         event.setApplied(true);
     }
-    
+        
+    /**
+     * 更新与行为序列相关的特征（例如连续跳过同一目标）
+     */
+    private void updateSequentialFeatures(UserBehaviorEvent event) {
+        if (event == null || event.getBehaviorType() == null) {
+            return;
+        }
+        String targetType = event.getTargetType();
+        String targetId = event.getTargetId();
+        if (targetType == null || targetId == null) {
+            return;
+        }
+        // 目前主要关注艺人/关键词的连续负向行为
+        if (!"artist".equalsIgnoreCase(targetType) && !"keyword".equalsIgnoreCase(targetType)) {
+            return;
+        }
+        boolean negative = event.getBehaviorType().isNegative();
+        cacheService.updateConsecutiveNegativeCount(event.getConversationId(), targetType, targetId, negative);
+    }
+        
     /**
      * 计算权重变化值
      * 
@@ -219,6 +242,13 @@ public class UserBehaviorFeedbackService {
             // 利用模式：给予新内容少量加成
             return 2.0;
         }
+    }
+    
+    /**
+     * 获取某个目标的连续负向行为计数
+     */
+    public int getConsecutiveNegativeCount(Long conversationId, String targetType, String targetId) {
+        return cacheService.getConsecutiveNegativeCount(conversationId, targetType, targetId);
     }
     
     /**

@@ -177,6 +177,17 @@ public class VideoRelevanceScorer {
                 reasons.add("合作视频: +2");
             }
         }
+        
+        // 7.5 序列特征：连续跳过同一艺人时快速压低权重
+        if (conversationId != null && video.getAuthor() != null && !video.getAuthor().isBlank()) {
+            int consecutiveNeg = behaviorFeedbackService.getConsecutiveNegativeCount(conversationId, "artist", video.getAuthor());
+            if (consecutiveNeg > 0) {
+                int penalty = Math.min(consecutiveNeg, 3) * 2; // 连续最多按 3 次计算
+                totalScore -= penalty;
+                features.setConsecutiveNegativePenalty(-penalty);
+                reasons.add(String.format("连续负向行为(艺人) %d 次: -%d", consecutiveNeg, penalty));
+            }
+        }
             
         // 8. 合集/串烧 (-3)
         if (isCollection(video)) {
@@ -636,6 +647,9 @@ public class VideoRelevanceScorer {
 
         // 探索/冷启动
         private int explorationBonus;       // 探索加成（取整）
+        
+        // 序列特征
+        private int consecutiveNegativePenalty; // 连续负向行为惩罚（艺人维度）
 
         // 其他辅助信息
         private boolean negativeKeywordHit; // 是否命中负关键词

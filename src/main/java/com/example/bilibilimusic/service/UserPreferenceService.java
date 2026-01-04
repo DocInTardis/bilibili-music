@@ -7,6 +7,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
+import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -22,6 +24,10 @@ public class UserPreferenceService {
     private final UserPreferenceMapper preferenceMapper;
     private final CacheService cacheService;
     private final PreferenceDecayService decayService;
+    
+    // 序列特征参数：最近 N 次交互窗口与增益系数
+    private static final int SEQUENTIAL_WINDOW = 5;
+    private static final double SEQUENTIAL_ALPHA = 0.5;
     
     /**
      * 增加视频偏好权重（点赞）
@@ -179,5 +185,21 @@ public class UserPreferenceService {
             weights.put(pref.getPreferenceTarget(), (int) Math.round(decayed));
         }
         return weights;
+    }
+    
+    /**
+     * 在衰减权重基础上叠加简单的“序列感”特征
+     * 结合交互次数（频率）和最近一次交互时间（新鲜度），近似最近 N 次会话频率
+     */
+    private double applySequentialBoost(UserPreference pref, double decayed) {
+        if (pref == null || pref.getLastUpdated() == null) {
+            return decayed;
+        }
+        int interactions = pref.getInteractionCount() != null ? pref.getInteractionCount() : 0;
+        double freqFactor = Math.min(interactions, SEQUENTIAL_WINDOW) / (double) SEQUENTIAL_WINDOW;
+        long days = ChronoUnit.DAYS.between(pref.getLastUpdated(), LocalDateTime.now());
+        double recencyFactor = days <= 0 ? 1.0 : 1.0 / (1.0 + days);
+        double boost = decayed * freqFactor * recencyFactor * SEQUENTIAL_ALPHA;
+        return decayed + boost;
     }
 }
