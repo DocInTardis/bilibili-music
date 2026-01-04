@@ -120,7 +120,7 @@ public class CacheService {
     }
     
     // ==================== 2. LLM 判断结果缓存 ====================
-    
+        
     /**
      * 生成 LLM 判断缓存 Key
      */
@@ -129,7 +129,26 @@ public class CacheService {
         String intentSummary = generateIntentSummary(intent);
         return "llm:judge:" + bvid + ":" + md5(intentSummary);
     }
-    
+        
+    /**
+     * 按视频粒度清空该视频的所有 LLM 判断缓存（用于智能失效）
+     */
+    public void evictLLMJudgementsForVideo(String bvid) {
+        if (bvid == null || bvid.isBlank()) {
+            return;
+        }
+        String pattern = "llm:judge:" + bvid + ":*";
+        try {
+            java.util.Set<String> keys = stringRedisTemplate.keys(pattern);
+            if (keys != null && !keys.isEmpty()) {
+                stringRedisTemplate.delete(keys);
+                log.info("[Cache] 智能失效：清理视频的LLM判断缓存 bvid={}, keys={}", bvid, keys.size());
+            }
+        } catch (Exception e) {
+            log.warn("[Cache] 智能失效清理LLM缓存失败: bvid={}, error={}", bvid, e.getMessage());
+        }
+    }
+        
     /**
      * 缓存 LLM 判断结果
      */

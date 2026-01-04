@@ -26,7 +26,8 @@ public class UserBehaviorFeedbackService {
     
     private final UserPreferenceService preferenceService;
     private final PreferenceDecayService decayService;
-    
+    private final CacheService cacheService;
+        
     // 冷启动阈值：交互次数少于此值时，启用探索策略
     private static final int COLD_START_THRESHOLD = 10;
     
@@ -49,10 +50,13 @@ public class UserBehaviorFeedbackService {
         
         // 计算权重变化
         double weightDelta = calculateWeightDelta(event);
-        
+                
         // 更新偏好权重
         updatePreference(event, weightDelta);
-        
+                
+        // 根据行为类型执行智能缓存失效（例如负向行为清理相关视频的LLM判断缓存）
+        handleSmartCacheInvalidation(event);
+                
         // 标记为已应用
         event.setApplied(true);
     }
@@ -99,7 +103,27 @@ public class UserBehaviorFeedbackService {
         // 直接通过 UserPreferenceService 调整偏好（支持正负权重）
         preferenceService.adjustPreference(conversationId, type, target, delta);
     }
-        
+            
+    /**
+     * 根据行为类型智能失效相关缓存
+     */
+    private void handleSmartCacheInvalidation(UserBehaviorEvent event) {
+        if (event == null) {
+            return;
+        }
+        UserBehaviorEvent.BehaviorType behaviorType = event.getBehaviorType();
+        if (behaviorType == null || !behaviorType.isNegative()) {
+            // 目前仅对负向行为做智能失效，正向行为依赖偏好权重调整即可
+            return;
+        }
+        String targetType = event.getTargetType();
+        String targetId = event.getTargetId();
+        if ("video".equalsIgnoreCase(targetType) && targetId != null && !targetId.isBlank()) {
+            // 用户对该视频产生负向反馈，清理该视频的所有LLM判断缓存，下次重新评估
+            cacheService.evictLLMJudgementsForVideo(targetId);
+        }
+    }
+            
     /**
      * 判断是否处于冷启动阶段
      * 
