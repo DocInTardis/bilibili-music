@@ -29,6 +29,15 @@ public class PlaylistAgentGraph {
     private final ContextPersistenceService contextPersistenceService;
         
     /**
+     * Debug 模式下的停止节点名称（命中后立即停止执行）
+     */
+    private String debugStopNodeName;
+    
+    public void setDebugStopNodeName(String debugStopNodeName) {
+        this.debugStopNodeName = debugStopNodeName;
+    }
+        
+    /**
      * 本次执行使用的策略名（Policy），用于 A/B 分析
      */
     @Getter
@@ -198,6 +207,12 @@ public class PlaylistAgentGraph {
                     throw e;
                 }
                 
+                // Debug 模式：如果命中停止节点，则提前终止执行
+                if (debugStopNodeName != null && debugStopNodeName.equals(currentNode)) {
+                    log.info("[Graph][Debug] 命中停止节点 {}，提前结束执行", currentNode);
+                    break;
+                }
+                
                 // 根据条件边决定下一个节点
                 ConditionalEdge edge = edges.get(currentNode);
                 if (edge == null) {
@@ -251,6 +266,13 @@ public class PlaylistAgentGraph {
             long endTime = System.currentTimeMillis();
             executionTrace.setEndTime(endTime);
             executionTrace.setTotalDurationMs(endTime - executionTrace.getStartTime());
+            
+            // 持久化完整执行追踪，配合节点快照用于 Debug Replay
+            try {
+                contextPersistenceService.saveExecutionTrace(executionTrace);
+            } catch (Exception e) {
+                log.warn("[Graph] 保存执行追踪失败: {}", e.getMessage());
+            }
             
             log.info("[Graph] 图执行完成，共执行 {} 个节点，总耗时: {}ms", iterations, executionTrace.getTotalDurationMs());
             log.info("[Graph] {}", executionTrace.getSummary());

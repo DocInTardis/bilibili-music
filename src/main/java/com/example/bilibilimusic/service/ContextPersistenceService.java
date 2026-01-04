@@ -2,6 +2,7 @@ package com.example.bilibilimusic.service;
 
 import com.example.bilibilimusic.context.AgentState;
 import com.example.bilibilimusic.context.PlaylistContext;
+import com.example.bilibilimusic.dto.ExecutionTrace;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -140,6 +141,77 @@ public class ContextPersistenceService {
                 playlistId, executionId, step, e);
         }
     }
+    
+    /**
+     * 加载节点快照（用于 Debug Replay）
+     */
+    public PlaylistContext loadNodeSnapshot(Long playlistId, String executionId, int step) {
+        try {
+            if (playlistId == null || executionId == null) {
+                return null;
+            }
+            String key = getSnapshotKey(playlistId, executionId, step);
+            RBucket<String> bucket = redissonClient.getBucket(key);
+            String json = bucket.get();
+            if (json == null) {
+                log.debug("[ContextPersist] 未找到节点快照: playlistId={}, executionId={}, step={}",
+                    playlistId, executionId, step);
+                return null;
+            }
+            AgentState state = objectMapper.readValue(json, AgentState.class);
+            PlaylistContext context = new PlaylistContext();
+            context.setState(state);
+            return context;
+        } catch (Exception e) {
+            log.error("[ContextPersist] 加载节点快照失败: playlistId={}, executionId={}, step={}",
+                playlistId, executionId, step, e);
+            return null;
+        }
+    }
+
+    /**
+     * 保存完整执行追踪（用于 Debug Replay）
+     */
+    public void saveExecutionTrace(ExecutionTrace trace) {
+        if (trace == null || trace.getPlaylistId() == null || trace.getExecutionId() == null) {
+            return;
+        }
+        try {
+            String key = getExecutionTraceKey(trace.getPlaylistId(), trace.getExecutionId());
+            String json = objectMapper.writeValueAsString(trace);
+            RBucket<String> bucket = redissonClient.getBucket(key);
+            bucket.set(json, SNAPSHOT_TTL_HOURS, TimeUnit.HOURS);
+            log.debug("[ContextPersist] 保存执行追踪: playlistId={}, executionId={}",
+                trace.getPlaylistId(), trace.getExecutionId());
+        } catch (JsonProcessingException e) {
+            log.error("[ContextPersist] 序列化执行追踪失败: playlistId={}, executionId={}",
+                trace.getPlaylistId(), trace.getExecutionId(), e);
+        }
+    }
+
+    /**
+     * 加载完整执行追踪
+     */
+    public ExecutionTrace loadExecutionTrace(Long playlistId, String executionId) {
+        try {
+            if (playlistId == null || executionId == null) {
+                return null;
+            }
+            String key = getExecutionTraceKey(playlistId, executionId);
+            RBucket<String> bucket = redissonClient.getBucket(key);
+            String json = bucket.get();
+            if (json == null) {
+                log.debug("[ContextPersist] 未找到执行追踪: playlistId={}, executionId={}",
+                    playlistId, executionId);
+                return null;
+            }
+            return objectMapper.readValue(json, ExecutionTrace.class);
+        } catch (Exception e) {
+            log.error("[ContextPersist] 加载执行追踪失败: playlistId={}, executionId={}",
+                playlistId, executionId, e);
+            return null;
+        }
+    }
 
     /**
      * 生成上下文 Key
@@ -153,5 +225,12 @@ public class ContextPersistenceService {
      */
     private String getSnapshotKey(Long playlistId, String executionId, int step) {
         return "agent:snapshot:" + playlistId + ":" + executionId + ":" + step;
+    }
+    
+    /**
+     * 生成执行追踪 Key
+     */
+    private String getExecutionTraceKey(Long playlistId, String executionId) {
+        return "agent:trace:" + playlistId + ":" + executionId;
     }
 }

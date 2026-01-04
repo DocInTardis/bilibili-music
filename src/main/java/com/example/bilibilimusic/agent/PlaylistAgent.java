@@ -158,6 +158,92 @@ public class PlaylistAgent {
     }
     
     /**
+     * Debug 模式：从指定快照恢复并重跑状态机
+     */
+    public PlaylistResponse debugReplay(Long playlistId, String executionId, int step, String stopAtNode, Consumer<String> statusCallback) {
+        log.info("[PlaylistAgent][DebugReplay] 从快照恢复并重跑: playlistId={}, executionId={}, step={}",
+            playlistId, executionId, step);
+
+        // 为避免干扰正常执行，仍然尝试获取执行锁
+        if (!executionLockService.tryLock(playlistId)) {
+            log.warn("[PlaylistAgent][DebugReplay] 播放列表正在执行中，无法重跑: playlistId={}", playlistId);
+            statusCallback.accept("⚠️ 该播放列表正在执行中，暂不支持同时 Debug 重跑");
+            return PlaylistResponse.builder()
+                .videos(Collections.emptyList())
+                .summary("该播放列表正在执行中，暂不支持 Debug 重跑")
+                .trashVideos(Collections.emptyList())
+                .mp3Files(Collections.emptyList())
+                .build();
+        }
+
+        try {
+            // 从节点快照恢复上下文
+            PlaylistContext context = contextPersistenceService.loadNodeSnapshot(playlistId, executionId, step);
+            if (context == null) {
+                log.warn("[PlaylistAgent][DebugReplay] 未找到节点快照: playlistId={}, executionId={}, step={}",
+                    playlistId, executionId, step);
+                statusCallback.accept("❌ 未找到指定的快照，无法重跑");
+                return PlaylistResponse.builder()
+                    .videos(Collections.emptyList())
+                    .summary("未找到指定的快照，无法重跑")
+                    .trashVideos(Collections.emptyList())
+                    .mp3Files(Collections.emptyList())
+                    .build();
+            }
+
+            Long conversationId = context.getConversationId();
+
+            // 基于快照中的 intent.mode 构造一个最小的请求，用于策略选择
+            PlaylistRequest replayRequest = null;
+            UserIntent intent = context.getIntent();
+            if (intent != null && intent.getMode() != null) {
+                replayRequest = new PlaylistRequest();
+                replayRequest.setMode(intent.getMode());
+            }
+
+            // 构建状态图（基于原始模式选择策略）
+            PlaylistAgentGraph graph = graphBuilder.build(replayRequest);
+            String strategy = graph.getPolicyName();
+
+            if (stopAtNode != null && !stopAtNode.isBlank()) {
+                graph.setDebugStopNodeName(stopAtNode);
+            }
+
+            // 初始化 Runtime Metrics（附带策略信息，便于 A/B 分析）
+            agentMetricsService.getOrCreateMetrics(playlistId, conversationId, strategy);
+            long startTime = System.currentTimeMillis();
+
+            // 执行图（会继续在每个节点后保存快照和执行追踪）
+            statusCallback.accept("🎯 开始 Debug 重跑状态机...");
+            executeWithPersistence(graph, context);
+
+            // 计算并记录指标
+            ExecutionTrace trace = graph.getExecutionTrace();
+            ExecutionMetrics metrics = metricsService.calculateMetrics(trace, context, strategy);
+            metricsService.recordMetrics(metrics);
+
+            // 完成 Runtime Metrics
+            long totalTime = System.currentTimeMillis() - startTime;
+            agentMetricsService.finishMetrics(playlistId, totalTime, true, null);
+
+            statusCallback.accept("✅ Debug 重跑完成");
+            return buildResponse(context);
+        } catch (Exception e) {
+            log.error("[PlaylistAgent][DebugReplay] 重跑失败: playlistId={}", playlistId, e);
+            statusCallback.accept("❌ Debug 重跑失败: " + e.getMessage());
+            agentMetricsService.finishMetrics(playlistId, 0L, false, e.getMessage());
+            return PlaylistResponse.builder()
+                .videos(Collections.emptyList())
+                .summary("Debug 重跑失败: " + e.getMessage())
+                .trashVideos(Collections.emptyList())
+                .mp3Files(Collections.emptyList())
+                .build();
+        } finally {
+            executionLockService.unlock(playlistId);
+        }
+    }
+    
+    /**
      * 初始化或恢复 Context（断点续跑）
      */
     private PlaylistContext initOrRestoreContext(PlaylistRequest request, Long playlistId, Long conversationId, Long userId) {
