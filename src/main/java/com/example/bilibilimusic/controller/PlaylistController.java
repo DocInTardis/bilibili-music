@@ -6,9 +6,12 @@ import com.example.bilibilimusic.dto.PlaylistResponse;
 import com.example.bilibilimusic.dto.SavePlaylistRequest;
 import com.example.bilibilimusic.dto.ExecutionTrace;
 import com.example.bilibilimusic.dto.NodeTrace;
+import com.example.bilibilimusic.dto.ExecutionOverview;
+import com.example.bilibilimusic.dto.ErrorStats;
 import com.example.bilibilimusic.context.PlaylistContext;
 import com.example.bilibilimusic.service.DatabaseService;
 import com.example.bilibilimusic.service.ContextPersistenceService;
+import com.example.bilibilimusic.service.ObservabilityService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,6 +31,7 @@ public class PlaylistController {
     private final PlaylistAgent playlistAgent;
     private final DatabaseService databaseService;
     private final ContextPersistenceService contextPersistenceService;
+    private final ObservabilityService observabilityService;
 
     @PostMapping
     public ResponseEntity<PlaylistResponse> generate(@Valid @RequestBody PlaylistRequest request) {
@@ -111,6 +115,22 @@ public class PlaylistController {
             return ResponseEntity.notFound().build();
         }
         return ResponseEntity.ok(context);
+    }
+
+    /**
+     * 最近 N 次执行的概要信息
+     */
+    @GetMapping("/observability/recent-executions")
+    public ResponseEntity<java.util.List<ExecutionOverview>> getRecentExecutions(@RequestParam(defaultValue = "10") int limit) {
+        return ResponseEntity.ok(observabilityService.getRecentExecutions(limit, limit * 10));
+    }
+
+    /**
+     * 常见错误聚合统计
+     */
+    @GetMapping("/observability/error-stats")
+    public ResponseEntity<ErrorStats> getErrorStats(@RequestParam(defaultValue = "24") int hours) {
+        return ResponseEntity.ok(observabilityService.getErrorStats(hours));
     }
 
     /**
