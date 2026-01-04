@@ -44,6 +44,11 @@ public class UserPreference {
     private Integer interactionCount;
     
     /**
+     * 偏好置信度（0.0-1.0），基于交互次数、时间衰减、一致性等因素计算
+     */
+    private Double confidence;
+    
+    /**
      * 最后更新时间
      */
     private LocalDateTime lastUpdated;

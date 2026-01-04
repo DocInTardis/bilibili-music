@@ -15,6 +15,7 @@ import com.example.bilibilimusic.service.DatabaseService;
 import com.example.bilibilimusic.service.ExecutionLockService;
 import com.example.bilibilimusic.service.MetricsService;
 import com.example.bilibilimusic.service.AgentMetricsService;
+import com.example.bilibilimusic.service.RecommendationExplanationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -51,6 +52,7 @@ public class PlaylistAgent {
     private final ContextPersistenceService contextPersistenceService;
     private final ExecutionLockService executionLockService;
     private final AgentMetricsService agentMetricsService;
+    private final RecommendationExplanationService explanationService;
     
     /**
      * 执行歌单生成任务（使用状态机 + 持久化 + 锁）
@@ -348,6 +350,15 @@ public class PlaylistAgent {
             }
             confidence = score;
         }
+        
+        // 生成推荐结果解释
+        PlaylistResponse.RecommendationExplanation explanation = null;
+        try {
+            explanation = explanationService.generateExplanation(
+                context, context.getSelectedVideos());
+        } catch (Exception e) {
+            log.warn("[推荐解释] 生成失败", e);
+        }
 
         // 流式模式：视频已经通过 WebSocket 逐个发送，这里只返回空列表
         return PlaylistResponse.builder()
@@ -356,6 +367,7 @@ public class PlaylistAgent {
             .trashVideos(context.getTrashVideos())
             .mp3Files(Collections.emptyList())
             .confidence(confidence)
+            .explanation(explanation)
             .build();
     }
 

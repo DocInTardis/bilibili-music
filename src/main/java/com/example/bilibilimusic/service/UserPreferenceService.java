@@ -188,6 +188,20 @@ public class UserPreferenceService {
     }
     
     /**
+     * 获取会话维度的所有偏好记录（不包含衰减）
+     */
+    public List<UserPreference> getAllPreferences(Long conversationId) {
+        return preferenceMapper.findByConversationId(conversationId);
+    }
+    
+    /**
+     * 获取用户维度的所有偏好记录（跨会话聚合，不包含衰减）
+     */
+    public List<UserPreference> getAllUserPreferences(Long userId) {
+        return preferenceMapper.findByUserId(userId);
+    }
+    
+    /**
      * 在衰减权重基础上叠加简单的“序列感”特征
      * 结合交互次数（频率）和最近一次交互时间（新鲜度），近似最近 N 次会话频率
      */
