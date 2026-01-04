@@ -28,7 +28,12 @@ public class ExecutionMetrics {
      * 播放列表ID
      */
     private Long playlistId;
-    
+        
+    /**
+     * 使用的策略名/Policy（用于 A/B 对比）
+     */
+    private String strategy;
+        
     /**
      * ========== 搜索与推荐指标 ==========
      */

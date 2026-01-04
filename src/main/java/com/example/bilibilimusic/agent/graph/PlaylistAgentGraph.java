@@ -27,7 +27,17 @@ public class PlaylistAgentGraph {
     private final AgentBehaviorLogService behaviorLogService;
     private final AgentMetricsService metricsService;
     private final ContextPersistenceService contextPersistenceService;
-    
+        
+    /**
+     * 本次执行使用的策略名（Policy），用于 A/B 分析
+     */
+    @Getter
+    private String policyName;
+        
+    public void setPolicyName(String policyName) {
+        this.policyName = policyName;
+    }
+        
     private final Map<String, AgentNode> nodes = new HashMap<>();
     private final Map<String, ConditionalEdge> edges = new HashMap<>();
     private String startNode;

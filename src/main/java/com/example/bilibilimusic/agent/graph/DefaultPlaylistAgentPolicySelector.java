@@ -34,7 +34,7 @@ public class DefaultPlaylistAgentPolicySelector implements PlaylistAgentPolicySe
 
         boolean lowCost = tags.contains("low_cost");
         boolean noSummary = tags.contains("no_summary");
-
+        
         PlaylistAgentPolicy policy;
         if (noSummary) {
             // “无摘要”场景优先于成本维度：结构差异更大
@@ -42,9 +42,11 @@ public class DefaultPlaylistAgentPolicySelector implements PlaylistAgentPolicySe
         } else if (lowCost) {
             policy = lowCostPlaylistAgentPolicy;
         } else {
-            policy = defaultPlaylistAgentPolicy;
+            // 未显式指定结构策略时，简单做一次在线 A/B：在 default 和 low_cost 之间随机分桶
+            boolean bucketLowCost = Math.random() < 0.5;
+            policy = bucketLowCost ? lowCostPlaylistAgentPolicy : defaultPlaylistAgentPolicy;
         }
-
+        
         log.info("[PolicySelector] 选择策略: rawMode={}, tags={}, policy={}", mode, tags, policy.getClass().getSimpleName());
         return policy;
     }

@@ -1,6 +1,7 @@
 package com.example.bilibilimusic.service;
 
 import com.example.bilibilimusic.dto.AgentRuntimeMetrics;
+import com.example.bilibilimusic.dto.ExecutionMetrics;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -32,14 +33,16 @@ public class AgentMetricsService {
     /**
      * 获取或创建 Metrics
      */
-    public AgentRuntimeMetrics getOrCreateMetrics(Long playlistId, Long conversationId) {
+    public AgentRuntimeMetrics getOrCreateMetrics(Long playlistId, Long conversationId, String strategy) {
         return metricsStore.computeIfAbsent(playlistId, id -> 
             AgentRuntimeMetrics.builder()
                 .playlistId(playlistId)
                 .conversationId(conversationId)
+                .strategy(strategy)
                 .build()
         );
     }
+        
     
     /**
      * 记录 LLM 调用
@@ -145,7 +148,37 @@ public class AgentMetricsService {
         
         return new GlobalMetrics(totalLLMCalls, totalCacheQueries, totalCacheHits, cacheHitRatio);
     }
-    
+        
+    /**
+     * 按策略聚合执行指标（用于在线 A/B 对比）
+     */
+    public void recordStrategyExecutionMetrics(ExecutionMetrics metrics) {
+        if (metrics == null || metrics.getStrategy() == null) {
+            return;
+        }
+        String strategy = metrics.getStrategy();
+        String prefix = "agent:metrics:strategy:" + strategy + ":";
+        try {
+            if (metrics.getTotalAccepted() != null) {
+                incrementRedisCounterBy(prefix + "accepted", metrics.getTotalAccepted());
+            }
+            if (metrics.getTotalEvaluated() != null) {
+                incrementRedisCounterBy(prefix + "evaluated", metrics.getTotalEvaluated());
+            }
+            if (metrics.getTotalExecutionTime() != null) {
+                addToRedisTimer(prefix + "totalTime", metrics.getTotalExecutionTime());
+            }
+            if (metrics.getLlmCallCount() != null) {
+                incrementRedisCounterBy(prefix + "llm:calls", metrics.getLlmCallCount());
+            }
+            if (metrics.getLlmTotalTime() != null) {
+                addToRedisTimer(prefix + "llm:duration", metrics.getLlmTotalTime());
+            }
+        } catch (Exception e) {
+            log.error("[Metrics] 策略指标聚合失败: strategy={}", strategy, e);
+        }
+    }
+        
     /**
      * Redis 计数器增加
      */
@@ -155,6 +188,18 @@ public class AgentMetricsService {
             stringRedisTemplate.expire(key, 7, TimeUnit.DAYS);
         } catch (Exception e) {
             log.error("[Metrics] Redis 计数器增加失败: key={}", key, e);
+        }
+    }
+    
+    /**
+     * Redis 计数器按增量增加
+     */
+    private void incrementRedisCounterBy(String key, long delta) {
+        try {
+            stringRedisTemplate.opsForValue().increment(key, delta);
+            stringRedisTemplate.expire(key, 7, TimeUnit.DAYS);
+        } catch (Exception e) {
+            log.error("[Metrics] Redis 计数器按增量增加失败: key={}", key, e);
         }
     }
     

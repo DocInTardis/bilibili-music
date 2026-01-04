@@ -94,23 +94,24 @@ public class PlaylistAgent {
         try {
             // 2. 初始化或恢复 Context
             PlaylistContext context = initOrRestoreContext(request, playlistId, conversationId, userId);
-            
-            // 2.5 初始化 Runtime Metrics
-            agentMetricsService.getOrCreateMetrics(playlistId, conversationId);
-            long startTime = System.currentTimeMillis();
-            
+                        
             // 3. 构建状态图（基于请求选择策略）
             PlaylistAgentGraph graph = graphBuilder.build(request);
-            
+            String strategy = graph.getPolicyName();
+                        
+            // 2.5 初始化 Runtime Metrics（附带策略信息，便于 A/B 分析）
+            agentMetricsService.getOrCreateMetrics(playlistId, conversationId, strategy);
+            long startTime = System.currentTimeMillis();
+                        
             // 4. 执行图（定期保存上下文）
             statusCallback.accept("🎯 开始执行状态机...");
             executeWithPersistence(graph, context);
             
             // 5. 计算并记录指标
             ExecutionTrace trace = graph.getExecutionTrace();
-            ExecutionMetrics metrics = metricsService.calculateMetrics(trace, context);
+            ExecutionMetrics metrics = metricsService.calculateMetrics(trace, context, strategy);
             metricsService.recordMetrics(metrics);
-            
+                        
             // 5.5 完成 Runtime Metrics
             long totalTime = System.currentTimeMillis() - startTime;
             agentMetricsService.finishMetrics(playlistId, totalTime, true, null);

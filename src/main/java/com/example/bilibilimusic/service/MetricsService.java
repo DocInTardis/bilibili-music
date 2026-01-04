@@ -21,15 +21,17 @@ import java.util.List;
 public class MetricsService {
     
     private final CurationSkill curationSkill;
-    
+    private final AgentMetricsService agentMetricsService;
+        
     /**
      * 从执行追踪和上下文中计算指标
      */
-    public ExecutionMetrics calculateMetrics(ExecutionTrace trace, PlaylistContext context) {
+    public ExecutionMetrics calculateMetrics(ExecutionTrace trace, PlaylistContext context, String strategy) {
         ExecutionMetrics metrics = ExecutionMetrics.builder()
             .executionId(trace.getExecutionId())
             .conversationId(trace.getConversationId())
             .playlistId(trace.getPlaylistId())
+            .strategy(strategy)
             .build();
         
         // 搜索与推荐指标
@@ -48,12 +50,15 @@ public class MetricsService {
         
         // 计算衍生指标
         metrics.calculateDerivedMetrics();
-            
+                    
         // 基于评估指标自适应调整 Curation 阈值
         autoTuneCurationThresholds(metrics);
-            
+                    
+        // 将本次执行指标汇总到按策略粒度的全局计数器，支持 A/B 分析
+        agentMetricsService.recordStrategyExecutionMetrics(metrics);
+                    
         log.info("[Metrics] {}", metrics.getSummary());
-            
+                    
         return metrics;
     }
         

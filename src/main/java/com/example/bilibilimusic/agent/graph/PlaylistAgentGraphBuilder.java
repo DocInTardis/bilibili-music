@@ -47,10 +47,11 @@ public class PlaylistAgentGraphBuilder {
      */
     public PlaylistAgentGraph build(PlaylistRequest request) {
         PlaylistAgentGraph graph = new PlaylistAgentGraph(behaviorLogService, metricsService, contextPersistenceService);
-        
+                
         PlaylistAgentPolicy policy = policySelector.selectPolicy(request);
+        graph.setPolicyName(policy.getClass().getSimpleName());
         policy.configure(graph, this);
-        
+                
         return graph;
     }
     

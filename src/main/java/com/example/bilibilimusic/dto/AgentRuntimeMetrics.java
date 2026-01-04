@@ -31,7 +31,12 @@ public class AgentRuntimeMetrics {
      * 会话ID
      */
     private Long conversationId;
-    
+        
+    /**
+     * 使用的策略名/Policy（用于 A/B 分析与对比）
+     */
+    private String strategy;
+        
     /**
      * LLM 调用次数
      */
