@@ -26,44 +26,70 @@ public interface AgentNode {
      * 节点执行结果
      */
     class NodeResult {
-        private final boolean success;
+        public enum Status {
+            SUCCESS,
+            FAILURE,
+            SKIP
+        }
+
+        private final Status status;
         private final String nextNode; // 建议的下一个节点（可选）
         private final Object data;     // 附加数据（可选）
-        
-        private NodeResult(boolean success, String nextNode, Object data) {
-            this.success = success;
+
+        private NodeResult(Status status, String nextNode, Object data) {
+            this.status = status;
             this.nextNode = nextNode;
             this.data = data;
         }
-        
+
         public static NodeResult success() {
-            return new NodeResult(true, null, null);
+            return new NodeResult(Status.SUCCESS, null, null);
         }
-        
+
         public static NodeResult success(String nextNode) {
-            return new NodeResult(true, nextNode, null);
+            return new NodeResult(Status.SUCCESS, nextNode, null);
         }
-        
+
         public static NodeResult success(String nextNode, Object data) {
-            return new NodeResult(true, nextNode, data);
+            return new NodeResult(Status.SUCCESS, nextNode, data);
         }
-        
+
         public static NodeResult failure() {
-            return new NodeResult(false, null, null);
+            return new NodeResult(Status.FAILURE, null, null);
         }
-        
+
         public static NodeResult failure(String reason) {
-            return new NodeResult(false, null, reason);
+            return new NodeResult(Status.FAILURE, null, reason);
         }
-        
+
+        public static NodeResult skip() {
+            return new NodeResult(Status.SKIP, null, null);
+        }
+
+        public static NodeResult skip(String nextNode) {
+            return new NodeResult(Status.SKIP, nextNode, null);
+        }
+
+        public Status getStatus() {
+            return status;
+        }
+
         public boolean isSuccess() {
-            return success;
+            return status == Status.SUCCESS || status == Status.SKIP;
         }
-        
+
+        public boolean isFailure() {
+            return status == Status.FAILURE;
+        }
+
+        public boolean isSkip() {
+            return status == Status.SKIP;
+        }
+
         public String getNextNode() {
             return nextNode;
         }
-        
+
         public Object getData() {
             return data;
         }

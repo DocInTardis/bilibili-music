@@ -63,6 +63,21 @@ public class ExecutionTrace {
      * 执行状态
      */
     private String status; // SUCCESS / FAILED / TIMEOUT
+
+    /**
+     * 状态机执行状态（INIT/RUNNING/COMPLETED/FAILED/TIMEOUT/...），用于更细粒度的可观测性。
+     */
+    private String fsmState;
+
+    /**
+     * 上下文版本号（用于 Context 结构演进与兼容判断）。
+     */
+    private Integer contextVersion;
+
+    /**
+     * 图版本/策略名称，便于区分不同策略下的执行行为。
+     */
+    private String graphVersion;
     
     /**
      * 添加节点追踪

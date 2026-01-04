@@ -31,4 +31,9 @@ public class ContinueJudgeEdge implements ConditionalEdge {
         log.info("[ContinueJudgeEdge] 判断结束，进入评估阶段");
         return "target_evaluation";
     }
+
+    @Override
+    public String getConditionExpression() {
+        return "shouldContinue && !targetReached && hasMoreVideos ? content_analysis : target_evaluation";
+    }
 }

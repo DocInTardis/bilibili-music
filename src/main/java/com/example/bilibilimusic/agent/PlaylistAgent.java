@@ -102,6 +102,11 @@ public class PlaylistAgent {
             // 2.5 初始化 Runtime Metrics（附带策略信息，便于 A/B 分析）
             agentMetricsService.getOrCreateMetrics(playlistId, conversationId, strategy);
             long startTime = System.currentTimeMillis();
+
+            // 将初始策略写入执行控制，便于后续热切换与调试
+            if (context.getControl() != null) {
+                context.getControl().setStrategyName(strategy);
+            }
                         
             // 4. 执行图（定期保存上下文）
             statusCallback.accept("🎯 开始执行状态机...");
@@ -135,7 +140,7 @@ public class PlaylistAgent {
             statusCallback.accept("✅ 歌单生成完成");
             
             // 8. 构建响应
-            return buildResponse(context);
+            return buildResponse(context, metrics);
             
         } catch (Exception e) {
             log.error("[PlaylistAgent] 任务执行失败: playlistId={}", playlistId, e);
@@ -227,7 +232,7 @@ public class PlaylistAgent {
             agentMetricsService.finishMetrics(playlistId, totalTime, true, null);
 
             statusCallback.accept("✅ Debug 重跑完成");
-            return buildResponse(context);
+            return buildResponse(context, metrics);
         } catch (Exception e) {
             log.error("[PlaylistAgent][DebugReplay] 重跑失败: playlistId={}", playlistId, e);
             statusCallback.accept("❌ Debug 重跑失败: " + e.getMessage());
@@ -320,14 +325,55 @@ public class PlaylistAgent {
     /**
      * 构建响应（流式模式下只返回摘要和垃圾桶候选，不返回视频列表）
      */
-    private PlaylistResponse buildResponse(PlaylistContext context) {
+    private PlaylistResponse buildResponse(PlaylistContext context, ExecutionMetrics metrics) {
+        Double confidence = null;
+        if (metrics != null) {
+            Double hitRate = metrics.getHitRate();
+            Double acceptanceRate = metrics.getAcceptanceRate();
+            Double completionRate = metrics.getTargetCompletionRate();
+            double score = 0.0;
+            if (hitRate != null) {
+                score += hitRate * 0.5;
+            }
+            if (acceptanceRate != null) {
+                score += acceptanceRate * 0.3;
+            }
+            if (completionRate != null) {
+                score += completionRate * 0.2;
+            }
+            if (score < 0.0) {
+                score = 0.0;
+            } else if (score > 1.0) {
+                score = 1.0;
+            }
+            confidence = score;
+        }
+
         // 流式模式：视频已经通过 WebSocket 逐个发送，这里只返回空列表
         return PlaylistResponse.builder()
             .videos(Collections.emptyList())  // 不再返回视频列表
             .summary(context.getSummary())
             .trashVideos(context.getTrashVideos())
             .mp3Files(Collections.emptyList())
+            .confidence(confidence)
             .build();
+    }
+
+    /**
+     * 导出当前策略下的状态图结构（用于可视化）。
+     *
+     * @param mode 可选的模式标签，用于选择不同策略
+     * @return 状态图的文本描述（可在前端转换为图形）
+     */
+    public String visualizeGraph(String mode) {
+        PlaylistRequest request = new PlaylistRequest();
+        request.setQuery("__visualize__");
+        request.setLimit(10);
+        if (mode != null && !mode.isBlank()) {
+            request.setMode(mode);
+        }
+        PlaylistAgentGraph graph = graphBuilder.build(request);
+        return graph.visualize();
     }
     
 }

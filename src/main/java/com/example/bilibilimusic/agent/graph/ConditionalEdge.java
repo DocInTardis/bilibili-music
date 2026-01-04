@@ -20,4 +20,13 @@ public interface ConditionalEdge {
      * @return 下一个节点的名称，null 表示结束
      */
     String decide(PlaylistContext state, AgentNode.NodeResult lastResult);
+
+    /**
+     * 条件表达式的标准化描述，用于可观测性和调试。
+     * 默认返回实现类的简单类名，可由具体边进行覆盖，返回类似：
+     * "hasResults && lastResult.success" 或 "shouldContinue && !targetReached"。
+     */
+    default String getConditionExpression() {
+        return this.getClass().getSimpleName();
+    }
 }

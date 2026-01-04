@@ -139,6 +139,15 @@ public class PlaylistController {
     }
 
     /**
+     * 导出 Agent 状态图结构，便于前端做可视化展示。
+     */
+    @GetMapping("/graph/visualize")
+    public ResponseEntity<String> visualizeGraph(@RequestParam(value = "mode", required = false) String mode) {
+        String graphText = playlistAgent.visualizeGraph(mode);
+        return ResponseEntity.ok(graphText);
+    }
+
+    /**
      * 手动输入视频 URL，将视频加入指定播放列表
      */
     @PostMapping("/item/add-by-url")

@@ -26,8 +26,12 @@ import java.util.Map;
 public class PlaylistContext {
     
     /**
-     * 核心状态（需持久化到 Redis）
+     * 当前上下文版本号（用于图执行上下文版本控制）。
+     * 如有结构变更，可通过提升该版本并在回放/兼容层做适配。
      */
+    public static final int CONTEXT_VERSION = 1;
+
+    private int contextVersion = CONTEXT_VERSION;
     private AgentState state = new AgentState();
     
     /**

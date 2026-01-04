@@ -28,4 +28,9 @@ public class PlaylistResponse {
      * 如果未来实现 MP3 下载，可以返回本地文件路径列表等信息（目前预留）。
      */
     private List<String> mp3Files;
+
+    /**
+     * 本次结果的可信度（0.0-1.0），基于命中率/接受率等指标估算。
+     */
+    private Double confidence;
 }

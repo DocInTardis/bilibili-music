@@ -3,6 +3,7 @@ package com.example.bilibilimusic.agent.graph;
 import com.example.bilibilimusic.agent.graph.edges.AfterRetrievalEdge;
 import com.example.bilibilimusic.agent.graph.edges.ContinueJudgeEdge;
 import com.example.bilibilimusic.agent.graph.nodes.*;
+import com.example.bilibilimusic.config.AgentExecutionConfig;
 import com.example.bilibilimusic.dto.PlaylistRequest;
 import com.example.bilibilimusic.service.AgentBehaviorLogService;
 import com.example.bilibilimusic.service.AgentMetricsService;
@@ -41,6 +42,7 @@ public class PlaylistAgentGraphBuilder {
     private final AgentMetricsService metricsService;
     private final ContextPersistenceService contextPersistenceService;
     private final PlaylistAgentPolicySelector policySelector;
+    private final AgentExecutionConfig agentExecutionConfig;
     
     /**
      * 构建 PlaylistAgent 状态图（根据请求选择策略）
@@ -49,7 +51,14 @@ public class PlaylistAgentGraphBuilder {
         PlaylistAgentGraph graph = new PlaylistAgentGraph(behaviorLogService, metricsService, contextPersistenceService);
                 
         PlaylistAgentPolicy policy = policySelector.selectPolicy(request);
-        graph.setPolicyName(policy.getClass().getSimpleName());
+        String policyName = policy.getClass().getSimpleName();
+        graph.setPolicyName(policyName);
+
+        // 根据策略应用统一的执行配置（整体超时 & 默认重试）
+        graph.setMaxDurationMs(agentExecutionConfig.getMaxDurationMs(policyName));
+        graph.setMaxNodeRetries(agentExecutionConfig.getDefaultMaxNodeRetries(policyName));
+        graph.setNodeRetryOverrides(agentExecutionConfig.getNodeRetryOverrides(policyName));
+        
         policy.configure(graph, this);
                 
         return graph;

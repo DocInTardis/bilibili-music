@@ -17,7 +17,7 @@ public class AfterRetrievalEdge implements ConditionalEdge {
     
     @Override
     public String decide(PlaylistContext state, AgentNode.NodeResult lastResult) {
-        if (!lastResult.isSuccess()) {
+        if (lastResult != null && lastResult.isFailure()) {
             log.warn("[AfterRetrievalEdge] 检索失败，结束流程");
             return null;
         }
@@ -29,5 +29,10 @@ public class AfterRetrievalEdge implements ConditionalEdge {
         
         log.info("[AfterRetrievalEdge] 找到 {} 个视频，开始预排序并进入判断循环", state.getSearchResults().size());
         return "pre_sort_videos";
+    }
+
+    @Override
+    public String getConditionExpression() {
+        return "lastResult.status != FAILURE && hasSearchResults";
     }
 }
