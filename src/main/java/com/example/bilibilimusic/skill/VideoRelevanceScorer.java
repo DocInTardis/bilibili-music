@@ -104,98 +104,114 @@ public class VideoRelevanceScorer {
                                     Long conversationId) {
         ScoringResult result = new ScoringResult();
         result.setVideo(video);
-        
+    
+        ScoringFeatures features = new ScoringFeatures();
+        result.setFeatures(features);
+            
         int totalScore = 0;
         List<String> reasons = new ArrayList<>();
-        
+            
         // 1. 负关键词过滤（优先级最高，直接拒绝）
         if (containsNegativeKeywords(video)) {
+            features.setNegativeKeywordHit(true);
             result.setScore(-100);
             result.setReason("包含负关键词，直接拒绝");
             result.setReject(true);
             return result;
         }
-        
+            
         // 2. 标题命中关键词 (+5 per keyword, +偏好权重)
         int titleScore = scoreTitleMatch(video.getTitle(), intent.getKeywords(), keywordPrefs);
+        features.setTitleScore(titleScore);
         totalScore += titleScore;
         if (titleScore > 0) {
             reasons.add(String.format("标题命中关键词: +%d", titleScore));
         }
-        
+            
         // 3. 作者命中关键词 (+4 per artist, +偏好权重)
         int authorScore = scoreAuthorMatch(video.getAuthor(), intent, artistPrefs);
+        features.setAuthorScore(authorScore);
         totalScore += authorScore;
         if (authorScore > 0) {
             reasons.add(String.format("作者匹配: +%d", authorScore));
         }
-        
+            
         // 4. 标签命中 (+3 per tag, +偏好权重)
         int tagScore = scoreTagMatch(video.getTags(), intent.getKeywords(), keywordPrefs);
+        features.setTagScore(tagScore);
         totalScore += tagScore;
         if (tagScore > 0) {
             reasons.add(String.format("标签匹配: +%d", tagScore));
         }
-        
+            
         // 5. 描述命中 (+1 per keyword, +偏好权重)
         int descScore = scoreDescriptionMatch(video.getDescription(), intent.getKeywords(), keywordPrefs);
+        features.setDescriptionScore(descScore);
         totalScore += descScore;
         if (descScore > 0) {
             reasons.add(String.format("描述匹配: +%d", descScore));
         }
-        
+            
         // 6. 单一艺人 (+2)
         if (isSingleArtist(video)) {
             totalScore += 2;
+            features.setSingleArtistBonus(2);
             reasons.add("单一艺人: +2");
         }
-        
+            
         // 7. 合作视频 (根据用户偏好决定)
         if (isCollaboration(video)) {
             if (intent.isSingleArtistOnly()) {
                 totalScore -= 3;
+                features.setCollaborationAdjust(-3);
                 reasons.add("合作视频（用户要求单一艺人）: -3");
             } else {
                 totalScore += 2;
+                features.setCollaborationAdjust(2);
                 reasons.add("合作视频: +2");
             }
         }
-        
+            
         // 8. 合集/串烧 (-3)
         if (isCollection(video)) {
             totalScore -= 3;
+            features.setCollectionPenalty(-3);
             reasons.add("合集/串烧: -3");
         }
-        
+            
         // 9. 时长异常 (-2)
         int durationPenalty = scoreDuration(video.getDuration());
+        features.setDurationPenalty(durationPenalty);
         if (durationPenalty < 0) {
             totalScore += durationPenalty;
             reasons.add(String.format("时长异常: %d", durationPenalty));
         }
-        
+            
         // 10. 可信度加分（播放量、评论数）
         int credibilityScore = scoreCredibility(video);
+        features.setCredibilityScore(credibilityScore);
         totalScore += credibilityScore;
         if (credibilityScore > 0) {
             reasons.add(String.format("可信度: +%d", credibilityScore));
         }
-        
+            
         // 11. 新增：探索加成（冷启动策略）
         if (conversationId != null) {
             boolean isNewVideo = !hasPreference(video.getBvid(), conversationId);
             double explorationBonus = behaviorFeedbackService.getExplorationBonus(isNewVideo, conversationId);
-            
+                
             if (explorationBonus > 0) {
-                totalScore += (int) explorationBonus;
+                int bonusInt = (int) explorationBonus;
+                totalScore += bonusInt;
+                features.setExplorationBonus(bonusInt);
                 reasons.add(String.format("探索加成: +%.0f", explorationBonus));
             }
         }
-        
+            
         result.setScore(totalScore);
         result.setReason(String.join("; ", reasons));
         result.setReject(totalScore < 0); // 负分直接拒绝
-        
+            
         return result;
     }
     
@@ -563,9 +579,41 @@ public class VideoRelevanceScorer {
         private int score;
         private String reason;
         private boolean reject; // 是否直接拒绝
+
+        /**
+         * 评分特征向量，用于调试/回放/离线分析
+         */
+        private ScoringFeatures features;
         
         public boolean isAccepted() {
             return !reject && score > 0;
         }
+    }
+
+    /**
+     * 评分特征拆解
+     */
+    @Data
+    public static class ScoringFeatures {
+        // 基础匹配分
+        private int titleScore;
+        private int authorScore;
+        private int tagScore;
+        private int descriptionScore;
+
+        // 结构特征
+        private int singleArtistBonus;      // 单一艺人加分（2 或 0）
+        private int collaborationAdjust;    // 合作视频调整（-3 / +2 / 0）
+        private int collectionPenalty;      // 合集/串烧惩罚（-3 / 0）
+
+        // 时长 & 热度
+        private int durationPenalty;        // 时长惩罚（-2/-1/0）
+        private int credibilityScore;       // 播放量 + 评论数加分
+
+        // 探索/冷启动
+        private int explorationBonus;       // 探索加成（取整）
+
+        // 其他辅助信息
+        private boolean negativeKeywordHit; // 是否命中负关键词
     }
 }
