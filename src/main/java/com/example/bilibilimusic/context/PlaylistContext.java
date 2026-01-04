@@ -50,7 +50,10 @@ public class PlaylistContext {
     // State 字段的便捷访问
     public Long getConversationId() { return state.getConversationId(); }
     public void setConversationId(Long id) { state.setConversationId(id); }
-    
+        
+    public Long getUserId() { return state.getUserId(); }
+    public void setUserId(Long userId) { state.setUserId(userId); }
+        
     public Long getPlaylistId() { return state.getPlaylistId(); }
     public void setPlaylistId(Long id) { state.setPlaylistId(id); }
     

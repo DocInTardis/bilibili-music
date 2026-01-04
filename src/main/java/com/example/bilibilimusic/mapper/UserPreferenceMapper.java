@@ -32,4 +32,17 @@ public interface UserPreferenceMapper extends BaseMapper<UserPreference> {
     @Select("SELECT * FROM user_preference WHERE conversation_id = #{conversationId} AND preference_type = #{preferenceType} ORDER BY weight_score DESC")
     List<UserPreference> findByConversationIdAndType(@Param("conversationId") Long conversationId, 
                                                        @Param("preferenceType") String preferenceType);
+    
+    /**
+     * 根据用户ID查找所有偏好（跨会话聚合）
+     */
+    @Select("SELECT up.* FROM user_preference up JOIN conversation c ON up.conversation_id = c.id WHERE c.user_id = #{userId} ORDER BY up.weight_score DESC, up.last_updated DESC")
+    List<UserPreference> findByUserId(@Param("userId") Long userId);
+    
+    /**
+     * 根据用户ID和类型查找偏好（跨会话聚合）
+     */
+    @Select("SELECT up.* FROM user_preference up JOIN conversation c ON up.conversation_id = c.id WHERE c.user_id = #{userId} AND up.preference_type = #{preferenceType} ORDER BY up.weight_score DESC, up.last_updated DESC")
+    List<UserPreference> findByUserIdAndType(@Param("userId") Long userId,
+                                             @Param("preferenceType") String preferenceType);
 }

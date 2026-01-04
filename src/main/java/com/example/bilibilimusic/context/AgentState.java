@@ -20,7 +20,12 @@ public class AgentState implements Serializable {
      * 会话 ID
      */
     private Long conversationId;
-    
+        
+    /**
+     * 用户 ID（预留，用于跨会话个性化推荐）
+     */
+    private Long userId;
+        
     /**
      * 播放列表 ID
      */

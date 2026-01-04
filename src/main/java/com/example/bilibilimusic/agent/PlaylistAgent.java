@@ -67,7 +67,8 @@ public class PlaylistAgent {
         // 0. 创建或获取当前活跃会话，并创建播放列表
         Conversation conversation = databaseService.getOrCreateActiveConversation();
         Long conversationId = conversation.getId();
-            
+        Long userId = conversation.getUserId();
+                    
         int targetCount = request.getLimit();
         Playlist playlist = databaseService.createPlaylist(
             conversationId, 
@@ -92,7 +93,7 @@ public class PlaylistAgent {
         
         try {
             // 2. 初始化或恢复 Context
-            PlaylistContext context = initOrRestoreContext(request, playlistId, conversationId);
+            PlaylistContext context = initOrRestoreContext(request, playlistId, conversationId, userId);
             
             // 2.5 初始化 Runtime Metrics
             agentMetricsService.getOrCreateMetrics(playlistId, conversationId);
@@ -158,7 +159,7 @@ public class PlaylistAgent {
     /**
      * 初始化或恢复 Context（断点续跑）
      */
-    private PlaylistContext initOrRestoreContext(PlaylistRequest request, Long playlistId, Long conversationId) {
+    private PlaylistContext initOrRestoreContext(PlaylistRequest request, Long playlistId, Long conversationId, Long userId) {
         // 尝试从 Redis 恢复未完成的上下文
         PlaylistContext context = contextPersistenceService.loadContext(playlistId);
         
@@ -171,6 +172,7 @@ public class PlaylistAgent {
         log.info("[PlaylistAgent] 初始化新的执行上下文");
         context = initContext(request);
         context.setConversationId(conversationId);
+        context.setUserId(userId);
         context.setPlaylistId(playlistId);
         
         // 保存初始上下文

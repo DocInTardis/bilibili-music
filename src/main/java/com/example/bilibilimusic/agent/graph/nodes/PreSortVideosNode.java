@@ -43,11 +43,16 @@ public class PreSortVideosNode implements AgentNode {
         
         // 从数据库获取用户偏好权重（个性化推荐，含时间衰减）
         Long conversationId = state.getConversationId();
-        Map<String, Integer> artistPrefs = preferenceService.getArtistPreferences(conversationId);
-        Map<String, Integer> keywordPrefs = preferenceService.getKeywordPreferences(conversationId);
-                
-        log.info("[PreSort] 加载偏好权重 - 艺人: {}, 关键词: {}", artistPrefs.size(), keywordPrefs.size());
-
+        Long userId = state.getUserId();
+        Map<String, Integer> artistPrefs = userId != null 
+            ? preferenceService.getUserArtistPreferences(userId)
+            : preferenceService.getArtistPreferences(conversationId);
+        Map<String, Integer> keywordPrefs = userId != null 
+            ? preferenceService.getUserKeywordPreferences(userId)
+            : preferenceService.getKeywordPreferences(conversationId);
+                        
+        log.info("[PreSort] 加载偏好权重 - userId={}, 艺人: {}, 关键词: {}", userId, artistPrefs.size(), keywordPrefs.size());
+        
         videos.sort(Comparator.comparing((VideoInfo v) -> isPlaylistStyle(v))
             .thenComparing((VideoInfo v) -> -calculateKeywordMatchScoreWithPreference(v, intent, artistPrefs, keywordPrefs))
             .thenComparingInt((VideoInfo v) -> calculateDeviationFromOptimal(
