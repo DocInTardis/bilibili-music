@@ -3,6 +3,9 @@ package com.example.bilibilimusic.skill;
 import com.example.bilibilimusic.context.PlaylistContext;
 import com.example.bilibilimusic.dto.VideoInfo;
 import com.example.bilibilimusic.service.LlmBudgetService;
+import com.example.bilibilimusic.service.OllamaService;
+import com.example.bilibilimusic.service.PromptVersionService;
+import com.example.bilibilimusic.service.PtqPromptService;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -36,6 +39,9 @@ public class CurationSkill implements Skill {
     private final VideoDuplicateFilter duplicateFilter;
     private final LlmBudgetService llmBudgetService;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final OllamaService ollamaService;
+    private final PromptVersionService promptVersionService;
+    private final PtqPromptService ptqPromptService;
     
     @Value("${ollama.model}")
     private String model;
@@ -176,38 +182,20 @@ public class CurationSkill implements Skill {
                 log.info("[CurationSkill] 低成本模式：跳过 LLM 边界判断，默认拒绝边界视频: {}", video.getTitle());
                 return false;
             }
-            String prompt = buildJudgementPrompt(video, intent);
-    
-            Map<String, Object> payload = new HashMap<>();
-            payload.put("model", model);
-            payload.put("stream", false);
-            
-            Map<String, Object> systemMessage = new HashMap<>();
-            systemMessage.put("role", "system");
-            systemMessage.put("content", getJudgementSystemPrompt());
-            
-            Map<String, Object> userMessage = new HashMap<>();
-            userMessage.put("role", "user");
-            userMessage.put("content", prompt);
-            
-            payload.put("messages", List.of(systemMessage, userMessage));
-            
-            Map<String, Object> response = ollamaWebClient.post()
-                .uri("/api/chat")
-                .bodyValue(payload)
-                .retrieve()
-                .bodyToMono(Map.class)
-                .block();
-            
-            if (response != null && response.containsKey("message")) {
-                Map<String, Object> message = (Map<String, Object>) response.get("message");
-                String content = (String) message.get("content");
-                
-                // 解析结果：包含"accept" 或 "true"
-                String lowerContent = content.toLowerCase();
-                return lowerContent.contains("accept") || lowerContent.contains("true") || lowerContent.contains("接受");
+            String prompt = ptqPromptService.buildJudgementPrompt(video, intent);
+
+            String systemPrompt = promptVersionService.getPromptTemplate("relevance_decision");
+            if (systemPrompt == null || systemPrompt.isBlank()) {
+                systemPrompt = getJudgementSystemPrompt();
+            }
+            String content = ollamaService.chat("relevance_decision", systemPrompt, prompt, false, 8_000L);
+            if (content == null || content.isBlank()) {
+                return false;
             }
             
+            // 解析结果：包含"accept" 或 "true"
+            String lowerContent = content.toLowerCase();
+            return lowerContent.contains("accept") || lowerContent.contains("true") || lowerContent.contains("接受");
         } catch (Exception e) {
             log.error("[CurationSkill] LLM判断失败", e);
         }
@@ -215,7 +203,7 @@ public class CurationSkill implements Skill {
         // LLM失败时，默认拒绝
         return false;
     }
-        
+    
     private java.util.Set<String> parseModeTags(String mode) {
         if (mode == null || mode.isBlank()) {
             return java.util.Collections.emptySet();
@@ -226,27 +214,6 @@ public class CurationSkill implements Skill {
             .collect(java.util.stream.Collectors.toSet());
     }
         
-    /**
-     * 构建判断 Prompt
-     */
-    private String buildJudgementPrompt(VideoInfo video, com.example.bilibilimusic.context.UserIntent intent) {
-        return String.format(
-            "用户需求：%s\n" +
-            "关键词：%s\n" +
-            "\n视频信息：\n" +
-            "标题：%s\n" +
-            "作者：%s\n" +
-            "时长：%s\n" +
-            "\n请判断这个视频是否符合用户需求。\n" +
-            "只需回答 'accept' 或 'reject'。",
-            intent.getQuery(),
-            intent.getKeywords() != null ? String.join(", ", intent.getKeywords()) : "",
-            video.getTitle(),
-            video.getAuthor(),
-            video.getDuration()
-        );
-    }
-    
     /**
      * 判断 Prompt 系统设定
      */

@@ -42,6 +42,8 @@ public class CacheService {
     private static final long PREFERENCE_CACHE_TTL = 604800; // 7天
     // 行为序列状态 TTL（与偏好保持一致）
     private static final long BEHAVIOR_SEQ_TTL = PREFERENCE_CACHE_TTL;
+    // Prompt 结果缓存 TTL（复用 LLM 结果的 24 小时窗口）
+    private static final long PROMPT_RESULT_CACHE_TTL = LLM_RESULT_CACHE_TTL;
     
     // ==================== 1. Query 级缓存 ====================
     
@@ -331,6 +333,56 @@ public class CacheService {
     
     private String buildConsecutiveNegativeKey(Long conversationId, String targetType, String targetId) {
         return "behavior:seq:neg:" + conversationId + ":" + targetType + ":" + targetId;
+    }
+    
+    // ==================== 5. Prompt 执行结果缓存 ====================
+    
+    /**
+     * 构建 Prompt 结果缓存 Key。
+     * 一般由 nodeName + promptVersion + 输入内容 组合后取 MD5。
+     */
+    public String buildPromptCacheKey(String nodeName, String version, String input) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(nodeName != null ? nodeName : "unknown")
+          .append(":")
+          .append(version != null ? version : "v1")
+          .append(":")
+          .append(input != null ? input : "");
+        return "llm:prompt:" + md5(sb.toString());
+    }
+    
+    /**
+     * 缓存 Prompt 执行结果（例如总结文案、结构化 JSON 文本等）。
+     */
+    public void cachePromptResult(String cacheKey, String result) {
+        if (cacheKey == null || cacheKey.isBlank() || result == null) {
+            return;
+        }
+        try {
+            stringRedisTemplate.opsForValue().set(cacheKey, result, PROMPT_RESULT_CACHE_TTL, TimeUnit.SECONDS);
+            log.debug("[Cache] 缓存 Prompt 结果: key={}", cacheKey);
+        } catch (Exception e) {
+            log.warn("[Cache] 缓存 Prompt 结果失败: key={}", cacheKey, e);
+        }
+    }
+    
+    /**
+     * 获取缓存的 Prompt 执行结果。
+     */
+    public String getCachedPromptResult(String cacheKey) {
+        if (cacheKey == null || cacheKey.isBlank()) {
+            return null;
+        }
+        try {
+            String value = stringRedisTemplate.opsForValue().get(cacheKey);
+            if (value != null) {
+                log.debug("[Cache] 命中 Prompt 结果缓存: key={}", cacheKey);
+            }
+            return value;
+        } catch (Exception e) {
+            log.warn("[Cache] 读取 Prompt 结果缓存失败: key={}", cacheKey, e);
+            return null;
+        }
     }
     
     // ==================== 工具方法 ====================

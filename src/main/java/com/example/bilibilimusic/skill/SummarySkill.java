@@ -3,6 +3,9 @@ package com.example.bilibilimusic.skill;
 import com.example.bilibilimusic.context.PlaylistContext;
 import com.example.bilibilimusic.dto.VideoInfo;
 import com.example.bilibilimusic.service.LlmBudgetService;
+import com.example.bilibilimusic.service.OllamaService;
+import com.example.bilibilimusic.service.PromptVersionService;
+import com.example.bilibilimusic.service.PtqPromptService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -28,6 +31,9 @@ public class SummarySkill implements Skill {
     
     private final WebClient ollamaWebClient;
     private final LlmBudgetService llmBudgetService;
+    private final OllamaService ollamaService;
+    private final PromptVersionService promptVersionService;
+    private final PtqPromptService ptqPromptService;
     
     @Value("${ollama.model}")
     private String model;
@@ -98,69 +104,20 @@ public class SummarySkill implements Skill {
                                    com.example.bilibilimusic.context.UserIntent intent,
                                    String selectionReason) {
         try {
-            String prompt = buildSummaryPrompt(videos, intent, selectionReason);
-            
-            Map<String, Object> payload = new HashMap<>();
-            payload.put("model", model);
-            payload.put("stream", false);
-            
-            Map<String, Object> systemMessage = new HashMap<>();
-            systemMessage.put("role", "system");
-            systemMessage.put("content", getSummarySystemPrompt());
-            
-            Map<String, Object> userMessage = new HashMap<>();
-            userMessage.put("role", "user");
-            userMessage.put("content", prompt);
-            
-            payload.put("messages", List.of(systemMessage, userMessage));
-            
-            Map<String, Object> response = ollamaWebClient.post()
-                .uri("/api/chat")
-                .bodyValue(payload)
-                .retrieve()
-                .bodyToMono(Map.class)
-                .block();
-            
-            if (response != null && response.containsKey("message")) {
-                Map<String, Object> message = (Map<String, Object>) response.get("message");
-                return (String) message.get("content");
+            String prompt = ptqPromptService.buildSummaryPrompt(videos, intent, selectionReason);
+            String systemPrompt = promptVersionService.getPromptTemplate("generate_summary");
+            if (systemPrompt == null || systemPrompt.isBlank()) {
+                systemPrompt = getSummarySystemPrompt();
             }
-            
+            String content = ollamaService.chat("generate_summary", systemPrompt, prompt, true, 15_000L);
+            if (content != null && !content.isBlank()) {
+                return content;
+            }
         } catch (Exception e) {
             log.error("[SummarySkill] LLM 调用失败", e);
         }
         
         return buildFallbackSummary(videos, intent);
-    }
-    
-    /**
-     * 构建总结 Prompt
-     */
-    private String buildSummaryPrompt(List<VideoInfo> videos, 
-                                     com.example.bilibilimusic.context.UserIntent intent,
-                                     String selectionReason) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("用户需求：").append(intent.getQuery()).append("\n");
-        if (intent.getPreference() != null && !intent.getPreference().isBlank()) {
-            sb.append("用户偏好：").append(intent.getPreference()).append("\n");
-        }
-        if (selectionReason != null && !selectionReason.isBlank()) {
-            sb.append("筛选理由：").append(selectionReason).append("\n");
-        }
-        sb.append("\n已筛选的视频列表：\n");
-        
-        for (int i = 0; i < videos.size(); i++) {
-            VideoInfo v = videos.get(i);
-            sb.append(String.format("%d. %s - %s（%s）\n", 
-                i + 1, v.getTitle(), v.getAuthor(), v.getDuration()));
-        }
-        
-        sb.append("\n请生成一段简洁的中文歌单推荐说明（100字以内），包括：\n");
-        sb.append("1. 整体风格特点\n");
-        sb.append("2. 适合的场景\n");
-        sb.append("3. 为什么推荐这些视频\n");
-        
-        return sb.toString();
     }
     
     /**

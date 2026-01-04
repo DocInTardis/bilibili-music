@@ -2,6 +2,8 @@ package com.example.bilibilimusic.skill;
 
 import com.example.bilibilimusic.context.PlaylistContext;
 import com.example.bilibilimusic.service.LlmBudgetService;
+import com.example.bilibilimusic.service.OllamaService;
+import com.example.bilibilimusic.service.PromptVersionService;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Data;
@@ -25,6 +27,8 @@ public class KeywordExtractionSkill implements Skill {
     private final WebClient ollamaWebClient;
     private final LlmBudgetService llmBudgetService;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final OllamaService ollamaService;
+    private final PromptVersionService promptVersionService;
     
     @Value("${ollama.model}")
     private String model;
@@ -99,54 +103,34 @@ public class KeywordExtractionSkill implements Skill {
     
     private String extractKeyword(String query, PlaylistContext context) {
         try {
-            Map<String, Object> payload = new HashMap<>();
-            payload.put("model", model);
-            payload.put("stream", false);
-            
-            Map<String, Object> systemMessage = new HashMap<>();
-            systemMessage.put("role", "system");
-            systemMessage.put("content", getKeywordExtractionPrompt());
-            
-            Map<String, Object> userMessage = new HashMap<>();
-            userMessage.put("role", "user");
-            userMessage.put("content", query);
-            
-            payload.put("messages", List.of(systemMessage, userMessage));
-            
-            Map<String, Object> response = ollamaWebClient.post()
-                .uri("/api/chat")
-                .bodyValue(payload)
-                .retrieve()
-                .bodyToMono(Map.class)
-                .block();
-            
-            if (response != null && response.containsKey("message")) {
-                Map<String, Object> message = (Map<String, Object>) response.get("message");
-                String content = (String) message.get("content");
-                
-                log.debug("[KeywordExtractionSkill] LLM 原始输出: {}", content);
-                
-                KeywordResult result = parseKeywordResult(content);
-                if (result != null && result.getKeywords() != null && !result.getKeywords().isEmpty()) {
-                    log.info("[KeywordExtractionSkill] LLM 理解: {}", result.getReason());
-                    log.info("[KeywordExtractionSkill] 提取的关键词数组: {}", result.getKeywords());
-                    
-                    // 将关键词数组合并为字符串，用于后续处理
-                    String extractedKeyword = String.join(" ", result.getKeywords());
-                    
-                    // 提取数量（如果 LLM 给出）
-                    if (result.getCount() != null && result.getCount() > 0) {
-                        context.getIntent().setTargetCount(result.getCount());
-                        log.info("[KeywordExtractionSkill] 提取到数量: {}", result.getCount());
-                    }
-                    return extractedKeyword;
-                }
-                
-                // 无法解析结构化 JSON 时，不使用整段输出作为关键词，回退为原始查询
-                log.warn("[KeywordExtractionSkill] 无法从 LLM 输出中解析关键词，将回退为原始查询");
+            String systemPrompt = promptVersionService.getPromptTemplate("keyword_extraction");
+            if (systemPrompt == null || systemPrompt.isBlank()) {
+                systemPrompt = getKeywordExtractionPrompt();
+            }
+            String content = ollamaService.chat("keyword_extraction", systemPrompt, query, true, 15_000L);
+            if (content == null || content.isBlank()) {
                 return query;
             }
             
+            KeywordResult result = parseKeywordResult(content);
+            if (result != null && result.getKeywords() != null && !result.getKeywords().isEmpty()) {
+                log.info("[KeywordExtractionSkill] LLM 理解: {}", result.getReason());
+                log.info("[KeywordExtractionSkill] 提取的关键词数组: {}", result.getKeywords());
+                
+                // 将关键词数组合并为字符串，用于后续处理
+                String extractedKeyword = String.join(" ", result.getKeywords());
+                
+                // 提取数量（如果 LLM 给出）
+                if (result.getCount() != null && result.getCount() > 0) {
+                    context.getIntent().setTargetCount(result.getCount());
+                    log.info("[KeywordExtractionSkill] 提取到数量: {}", result.getCount());
+                }
+                return extractedKeyword;
+            }
+            
+            // 无法解析结构化 JSON 时，不使用整段输出作为关键词，回退为原始查询
+            log.warn("[KeywordExtractionSkill] 无法从 LLM 输出中解析关键词，将回退为原始查询");
+            return query;
         } catch (Exception e) {
             log.error("[KeywordExtractionSkill] LLM 调用失败", e);
         }

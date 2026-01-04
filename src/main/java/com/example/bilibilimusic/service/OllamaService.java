@@ -1,6 +1,8 @@
 package com.example.bilibilimusic.service;
 
 import com.example.bilibilimusic.dto.VideoInfo;
+import com.example.bilibilimusic.service.CacheService;
+import com.example.bilibilimusic.service.PromptVersionService;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
@@ -22,9 +24,94 @@ import java.util.stream.Collectors;
 public class OllamaService {
 
     private final WebClient ollamaWebClient;
+    private final PromptVersionService promptVersionService;
+    private final CacheService cacheService;
 
     @Value("${ollama.model}")
     private String model;
+
+    /**
+     * 通用的 LLM Chat 调用入口。
+     *
+     * @param nodeName    调用节点名称（用于版本与缓存）
+     * @param systemPrompt 系统 Prompt（风格/约束说明）
+     * @param userPrompt   用户 Prompt（具体任务描述）
+     * @param enableCache  是否启用结果缓存
+     * @param timeoutMs    超时时间（毫秒）
+     * @return LLM 返回的内容，失败或超时时返回 null
+     */
+    public String chat(String nodeName,
+                       String systemPrompt,
+                       String userPrompt,
+                       boolean enableCache,
+                       long timeoutMs) {
+        String version = promptVersionService.getCurrentVersion(nodeName);
+        String cacheKey = null;
+        if (enableCache) {
+            cacheKey = cacheService.buildPromptCacheKey(nodeName, version, userPrompt);
+            String cached = cacheService.getCachedPromptResult(cacheKey);
+            if (cached != null) {
+                log.debug("[OllamaService] 命中 Prompt 结果缓存: node={}, version={}", nodeName, version);
+                return cached;
+            }
+        }
+
+        long start = System.currentTimeMillis();
+        String content = null;
+        try {
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("model", model);
+            payload.put("stream", false);
+
+            Map<String, Object> systemMessage = new HashMap<>();
+            systemMessage.put("role", "system");
+            systemMessage.put("content", systemPrompt);
+
+            Map<String, Object> userMessage = new HashMap<>();
+            userMessage.put("role", "user");
+            userMessage.put("content", userPrompt);
+
+            payload.put("messages", List.of(systemMessage, userMessage));
+
+            Map<String, Object> response = ollamaWebClient.post()
+                .uri("/api/chat")
+                .bodyValue(payload)
+                .retrieve()
+                .bodyToMono(Map.class)
+                .block(java.time.Duration.ofMillis(timeoutMs));
+
+            if (response != null && response.containsKey("message")) {
+                Map<String, Object> message = (Map<String, Object>) response.get("message");
+                content = (String) message.get("content");
+            }
+        } catch (Exception e) {
+            log.error("[OllamaService] 调用 LLM 失败: node={}", nodeName, e);
+        } finally {
+            long duration = System.currentTimeMillis() - start;
+            // 简单估算 Token 与成本（以字符数 / 4 近似 Token 数）
+            int promptTokens = estimateTokens(systemPrompt) + estimateTokens(userPrompt);
+            int completionTokens = estimateTokens(content);
+            int totalTokens = promptTokens + completionTokens;
+            double costPerThousand = 0.0; // 如需精确成本，可通过配置注入
+            double estimatedCost = totalTokens / 1000.0 * costPerThousand;
+            log.info("[LLM] node={} version={} tokens(p/c/t)={}/{}/{} duration={}ms cost≈{}",
+                nodeName, version, promptTokens, completionTokens, totalTokens, duration, estimatedCost);
+        }
+
+        if (enableCache && cacheKey != null && content != null && !content.isBlank()) {
+            cacheService.cachePromptResult(cacheKey, content);
+        }
+
+        return content;
+    }
+
+    private int estimateTokens(String text) {
+        if (text == null || text.isBlank()) {
+            return 0;
+        }
+        // 粗略估算：4 个字符约等于 1 个 token
+        return Math.max(1, text.length() / 4);
+    }
 
     public Mono<String> summarizePlaylist(List<VideoInfo> videos, String userQuery, String preference) {
         StringBuilder builder = new StringBuilder();
