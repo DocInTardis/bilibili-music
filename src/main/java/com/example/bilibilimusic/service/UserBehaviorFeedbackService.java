@@ -45,6 +45,14 @@ public class UserBehaviorFeedbackService {
      * @param event 用户行为事件
      */
     public void recordBehavior(UserBehaviorEvent event) {
+        if (event == null || event.getBehaviorType() == null) {
+            return;
+        }
+        // 如果前端未显式传 intensity，则回落到行为枚举的默认强度
+        if (event.getIntensity() == null) {
+            event.setIntensity(event.getBehaviorType().getDefaultIntensity());
+        }
+
         log.info("[Behavior] 记录行为: {} {} (强度: {})", 
             event.getBehaviorType(), event.getTargetId(), event.getIntensity());
         

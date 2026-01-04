@@ -36,7 +36,31 @@ public class BilibiliSearchService {
      * 用于抓取视频详情页（meta keywords / description）
      */
     private final HttpClient httpClient = HttpClient.newHttpClient();
-
+        
+    /**
+     * 根据单个视频 URL 抓取视频信息（用于手动添加）
+     */
+    public VideoInfo fetchByUrl(String url) {
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+        List<VideoInfo> result = new ArrayList<>();
+        result.add(VideoInfo.builder()
+            .url(url)
+            .title("手动添加视频")
+            .author("未知")
+            .duration("未知")
+            .tags("")
+            .description("")
+            .build());
+        try (Playwright playwright = Playwright.create()) {
+            enrichVideoDetailsWithPlaywright(playwright, result);
+        } catch (Exception e) {
+            log.error("Playwright 抓取单个视频详情失败: {}", url, e);
+        }
+        return result.get(0);
+    }
+    
     public List<VideoInfo> search(String query, int limit) {
         String encoded = URLEncoder.encode(query, StandardCharsets.UTF_8);
         String url = searchUrlTemplate.replace("{query}", encoded);

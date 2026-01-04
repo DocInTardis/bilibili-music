@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 数据库持久化服务
@@ -24,6 +25,7 @@ public class DatabaseService {
     private final VideoMapper videoMapper;
     private final MusicUnitMapper musicUnitMapper;
     private final PlaylistItemMapper playlistItemMapper;
+    private final BilibiliSearchService bilibiliSearchService;
 
     /**
      * 创建或获取当前活跃会话
@@ -159,6 +161,63 @@ public class DatabaseService {
         }
         
         log.info("添加歌曲到播放列表: {} - {}, 位置: {}", title, artist, position);
+    }
+
+    /**
+     * 手动通过视频 URL 将视频加入播放列表
+     */
+    @Transactional
+    public void addVideoToPlaylistByUrl(Long playlistId, String url, String reason) {
+        VideoInfo videoInfo = bilibiliSearchService.fetchByUrl(url);
+        if (videoInfo == null) {
+            log.warn("根据URL抓取视频信息失败: url={}", url);
+            return;
+        }
+        videoInfo.setBvid(extractBvid(url));
+        Video video = saveOrUpdateVideo(videoInfo);
+        if (video == null) {
+            log.warn("保存视频失败，无法加入播放列表: url={}", url);
+            return;
+        }
+        // 计算新的 position（当前最大 position + 1）
+        LambdaQueryWrapper<PlaylistItem> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(PlaylistItem::getPlaylistId, playlistId)
+               .orderByDesc(PlaylistItem::getPosition)
+               .last("LIMIT 1");
+        PlaylistItem last = playlistItemMapper.selectOne(wrapper);
+        int nextPosition = (last != null && last.getPosition() != null) ? last.getPosition() + 1 : 1;
+        addMusicToPlaylist(playlistId, videoInfo.getTitle(), videoInfo.getAuthor(), video, reason, nextPosition);
+    }
+    
+    /**
+     * 随机获取若干视频，转换为 VideoInfo（用于每日推荐榜单）
+     */
+    public List<VideoInfo> getRandomRecommendations(int limit) {
+        if (limit <= 0) {
+            limit = 10;
+        }
+        List<Video> videos = videoMapper.selectRandomVideos(limit);
+        List<VideoInfo> result = new java.util.ArrayList<>();
+        for (Video v : videos) {
+            if (v == null) continue;
+            String durationStr = null;
+            if (v.getDurationSec() != null && v.getDurationSec() > 0) {
+                int total = v.getDurationSec();
+                int m = total / 60;
+                int s = total % 60;
+                durationStr = String.format("%d:%02d", m, s);
+            }
+            result.add(VideoInfo.builder()
+                .bvid(v.getPlatformVid())
+                .title(v.getTitle())
+                .url(v.getUrl())
+                .author("未知")
+                .duration(durationStr)
+                .tags(v.getTags())
+                .description(v.getDescription())
+                .build());
+        }
+        return result;
     }
 
     /**

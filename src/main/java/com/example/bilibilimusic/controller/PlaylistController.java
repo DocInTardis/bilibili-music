@@ -8,10 +8,14 @@ import com.example.bilibilimusic.dto.ExecutionTrace;
 import com.example.bilibilimusic.dto.NodeTrace;
 import com.example.bilibilimusic.dto.ExecutionOverview;
 import com.example.bilibilimusic.dto.ErrorStats;
+import com.example.bilibilimusic.dto.UserBehaviorRequest;
+import com.example.bilibilimusic.dto.VideoInfo;
+import com.example.bilibilimusic.entity.UserBehaviorEvent;
 import com.example.bilibilimusic.context.PlaylistContext;
 import com.example.bilibilimusic.service.DatabaseService;
 import com.example.bilibilimusic.service.ContextPersistenceService;
 import com.example.bilibilimusic.service.ObservabilityService;
+import com.example.bilibilimusic.service.UserBehaviorFeedbackService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,6 +36,7 @@ public class PlaylistController {
     private final DatabaseService databaseService;
     private final ContextPersistenceService contextPersistenceService;
     private final ObservabilityService observabilityService;
+    private final UserBehaviorFeedbackService userBehaviorFeedbackService;
 
     @PostMapping
     public ResponseEntity<PlaylistResponse> generate(@Valid @RequestBody PlaylistRequest request) {
@@ -131,6 +136,56 @@ public class PlaylistController {
     @GetMapping("/observability/error-stats")
     public ResponseEntity<ErrorStats> getErrorStats(@RequestParam(defaultValue = "24") int hours) {
         return ResponseEntity.ok(observabilityService.getErrorStats(hours));
+    }
+
+    /**
+     * 手动输入视频 URL，将视频加入指定播放列表
+     */
+    @PostMapping("/item/add-by-url")
+    public ResponseEntity<Void> addItemByUrl(@RequestParam Long playlistId,
+                                             @RequestParam String url,
+                                             @RequestParam(required = false, defaultValue = "手动添加") String reason) {
+        log.info("[REST API] 手动添加视频: playlistId={}, url={}", playlistId, url);
+        databaseService.addVideoToPlaylistByUrl(playlistId, url, reason);
+        return ResponseEntity.ok().build();
+    }
+
+    /**
+     * 每日推荐榜单：随机返回若干视频
+     */
+    @GetMapping("/daily/recommend")
+    public ResponseEntity<PlaylistResponse> getDailyRecommend(@RequestParam(defaultValue = "10") int limit) {
+        java.util.List<VideoInfo> videos = databaseService.getRandomRecommendations(limit);
+        PlaylistResponse response = PlaylistResponse.builder()
+            .videos(videos)
+            .summary(String.format("为您随机推荐 %d 首 B 站音乐视频", videos != null ? videos.size() : 0))
+            .build();
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * 前端上报用户行为（喜欢/不喜欢/跳过/播放时长/删除等）
+     */
+    @PostMapping("/behavior")
+    public ResponseEntity<Void> reportBehavior(@RequestBody UserBehaviorRequest request) {
+        try {
+            UserBehaviorEvent.BehaviorType type = UserBehaviorEvent.BehaviorType.valueOf(request.getBehaviorType());
+            UserBehaviorEvent event = UserBehaviorEvent.builder()
+                .conversationId(request.getConversationId())
+                .behaviorType(type)
+                .targetType(request.getTargetType())
+                .targetId(request.getTargetId())
+                .intensity(request.getIntensity())
+                .contextJson(request.getContextJson())
+                .occurredAt(java.time.LocalDateTime.now())
+                .applied(false)
+                .build();
+            userBehaviorFeedbackService.recordBehavior(event);
+            return ResponseEntity.ok().build();
+        } catch (IllegalArgumentException e) {
+            log.warn("[REST API] 无效的行为类型: {}", request.getBehaviorType());
+            return ResponseEntity.badRequest().build();
+        }
     }
 
     /**
