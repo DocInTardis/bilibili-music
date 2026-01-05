@@ -20,6 +20,7 @@ import java.util.*;
 public class ObservabilityService {
 
     private final AgentBehaviorLogMapper behaviorLogMapper;
+    private final ContextPersistenceService contextPersistenceService;
 
     /**
      * 最近 N 次执行的概要信息
@@ -73,6 +74,7 @@ public class ObservabilityService {
         List<ExecutionOverview> result = new ArrayList<>();
         for (ExecutionAggregate agg : aggregateMap.values()) {
             long avgDuration = agg.nodeExitCount > 0 ? agg.totalDurationMs / agg.nodeExitCount : 0L;
+            String latestExecutionId = contextPersistenceService.getLatestExecutionId(agg.playlistId);
             result.add(ExecutionOverview.builder()
                 .playlistId(agg.playlistId)
                 .conversationId(agg.conversationId)
@@ -82,6 +84,7 @@ public class ObservabilityService {
                 .avgNodeDurationMs(avgDuration)
                 .hasError(agg.hasError)
                 .failedNodes(new ArrayList<>(agg.failedNodes))
+                .latestExecutionId(latestExecutionId)
                 .build());
         }
         return result;

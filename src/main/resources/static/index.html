@@ -583,9 +583,14 @@
             <div class="chat-header">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                     <h2>🎵 Bilibili 音乐助手</h2>
-                    <button class="new-chat-btn" onclick="createNewConversation()" title="新建对话">
-                        ➕ 新对话
-                    </button>
+                    <div style="display:flex; gap:8px;">
+                        <button class="new-chat-btn" onclick="createNewConversation()" title="新建对话">
+                            ➕ 新对话
+                        </button>
+                        <button class="new-chat-btn" onclick="toggleExecutionHistory()" title="执行历史对比">
+                            📊 执行对比
+                        </button>
+                    </div>
                 </div>
                 <p>告诉我你想要什么样的歌单</p>
                 <div class="conversation-list" id="conversationList">
@@ -597,6 +602,20 @@
                 <div class="status-message">
                     欢迎使用！请在下方输入您的音乐需求，我会帮您在 B 站搜索并推荐歌单。
                 </div>
+            </div>
+
+            <div id="executionHistoryPanel" style="display:none; border-top:1px solid #e3e5e7; background:#fff; max-height:260px; overflow:auto; padding:8px 12px; font-size:12px;">
+                <div style="display:flex; justify-content: space-between; align-items:center; margin-bottom:6px;">
+                    <strong>执行历史对比</strong>
+                    <div>
+                        <button style="margin-right:6px; padding:4px 8px; font-size:12px;" onclick="loadRecentExecutions()">刷新</button>
+                        <button style="padding:4px 8px; font-size:12px;" onclick="compareSelectedExecutions()">对比</button>
+                    </div>
+                </div>
+                <div id="executionHistoryContent">
+                    <div style="color:#999;">点击“刷新”加载最近执行记录</div>
+                </div>
+                <div id="executionCompareResult" style="margin-top:8px;"></div>
             </div>
 
             <div class="chat-input-area">
@@ -640,6 +659,8 @@
         const messagesContainer = document.getElementById('chatMessages');
         const userInput = document.getElementById('userInput');
         const sendBtn = document.getElementById('sendBtn');
+        let recentExecutions = [];
+        let selectedExecutionKeys = []; // key = playlistId|executionId
 
         // 连接 WebSocket
         function connectWebSocket() {
@@ -1579,6 +1600,170 @@
             connectWebSocket();
             loadConversations();
         });
+
+        // ========== 执行历史对比视图 ==========
+        function toggleExecutionHistory() {
+            const panel = document.getElementById('executionHistoryPanel');
+            if (!panel) return;
+            const isHidden = panel.style.display === 'none' || panel.style.display === '';
+            panel.style.display = isHidden ? 'block' : 'none';
+            if (isHidden && (!recentExecutions || recentExecutions.length === 0)) {
+                loadRecentExecutions();
+            }
+        }
+
+        function loadRecentExecutions() {
+            fetch('/api/playlist/observability/recent-executions?limit=10')
+                .then(resp => resp.json())
+                .then(data => {
+                    recentExecutions = Array.isArray(data) ? data : [];
+                    selectedExecutionKeys = [];
+                    renderExecutionHistory();
+                })
+                .catch(err => {
+                    console.error('加载执行历史失败:', err);
+                    const content = document.getElementById('executionHistoryContent');
+                    if (content) {
+                        content.innerHTML = '<div style="color:#c00;">加载执行历史失败</div>';
+                    }
+                });
+        }
+
+        function renderExecutionHistory() {
+            const content = document.getElementById('executionHistoryContent');
+            if (!content) return;
+            if (!recentExecutions || recentExecutions.length === 0) {
+                content.innerHTML = '<div style="color:#999;">暂无执行记录</div>';
+                return;
+            }
+            let html = '<table style="width:100%; border-collapse:collapse; font-size:12px;">';
+            html += '<thead><tr>' +
+                '<th style="border-bottom:1px solid #eee; padding:4px;">选择</th>' +
+                '<th style="border-bottom:1px solid #eee; padding:4px;">Playlist</th>' +
+                '<th style="border-bottom:1px solid #eee; padding:4px;">Conversation</th>' +
+                '<th style="border-bottom:1px solid #eee; padding:4px;">时间</th>' +
+                '<th style="border-bottom:1px solid #eee; padding:4px;">节点数</th>' +
+                '<th style="border-bottom:1px solid #eee; padding:4px;">失败节点</th>' +
+                '<th style="border-bottom:1px solid #eee; padding:4px;">平均耗时(ms)</th>' +
+                '<th style="border-bottom:1px solid #eee; padding:4px;">错误</th>' +
+                '</tr></thead><tbody>';
+            recentExecutions.forEach(exec => {
+                const timeStr = exec.lastTime ? exec.lastTime.replace('T', ' ') : '';
+                const key = exec.playlistId + '|' + (exec.latestExecutionId || '');
+                const checked = selectedExecutionKeys.includes(key) ? 'checked' : '';
+                html += `<tr>
+                    <td style="border-bottom:1px solid #f5f5f5; padding:4px; text-align:center;">
+                        <input type="checkbox" ${checked} onchange="onExecutionRowSelect('${exec.playlistId}','${exec.latestExecutionId || ''}', this)">
+                    </td>
+                    <td style="border-bottom:1px solid #f5f5f5; padding:4px;">${exec.playlistId}</td>
+                    <td style="border-bottom:1px solid #f5f5f5; padding:4px;">${exec.conversationId || ''}</td>
+                    <td style="border-bottom:1px solid #f5f5f5; padding:4px;">${timeStr}</td>
+                    <td style="border-bottom:1px solid #f5f5f5; padding:4px;">${exec.nodeExitCount}</td>
+                    <td style="border-bottom:1px solid #f5f5f5; padding:4px;">${exec.failedNodeCount}</td>
+                    <td style="border-bottom:1px solid #f5f5f5; padding:4px;">${exec.avgNodeDurationMs}</td>
+                    <td style="border-bottom:1px solid #f5f5f5; padding:4px;">${exec.hasError ? '⚠️' : ''}</td>
+                </tr>`;
+            });
+            html += '</tbody></table>';
+            content.innerHTML = html;
+        }
+
+        function onExecutionRowSelect(playlistId, executionId, checkbox) {
+            const key = playlistId + '|' + (executionId || '');
+            if (checkbox.checked) {
+                if (!executionId) {
+                    alert('该执行缺少 executionId，无法对比');
+                    checkbox.checked = false;
+                    return;
+                }
+                selectedExecutionKeys.push(key);
+                if (selectedExecutionKeys.length > 2) {
+                    const removed = selectedExecutionKeys.shift();
+                    console.log('自动取消选择:', removed);
+                    renderExecutionHistory();
+                }
+            } else {
+                selectedExecutionKeys = selectedExecutionKeys.filter(k => k !== key);
+            }
+        }
+
+        function compareSelectedExecutions() {
+            if (selectedExecutionKeys.length !== 2) {
+                alert('请先选择两个执行进行对比');
+                return;
+            }
+            const [k1, k2] = selectedExecutionKeys;
+            const [p1, e1] = k1.split('|');
+            const [p2, e2] = k2.split('|');
+            if (!e1 || !e2) {
+                alert('所选执行缺少 executionId，无法对比');
+                return;
+            }
+            Promise.all([
+                fetch(`/api/playlist/debug/trace?playlistId=${p1}&executionId=${encodeURIComponent(e1)}`).then(r => r.json()),
+                fetch(`/api/playlist/debug/trace?playlistId=${p2}&executionId=${encodeURIComponent(e2)}`).then(r => r.json())
+            ]).then(traces => {
+                renderExecutionCompare(traces[0], traces[1]);
+            }).catch(err => {
+                console.error('加载执行详情失败:', err);
+                const panel = document.getElementById('executionCompareResult');
+                if (panel) {
+                    panel.innerHTML = '<div style="color:#c00;">加载执行详情失败</div>';
+                }
+            });
+        }
+
+        function renderExecutionCompare(t1, t2) {
+            const panel = document.getElementById('executionCompareResult');
+            if (!panel) return;
+            if (!t1 || !t2) {
+                panel.innerHTML = '<div style="color:#999;">执行详情为空</div>';
+                return;
+            }
+            const metrics = [
+                { key: 'executionId', label: '执行ID' },
+                { key: 'playlistId', label: 'PlaylistID' },
+                { key: 'conversationId', label: 'ConversationID' },
+                { key: 'status', label: '状态' },
+                { key: 'fsmState', label: 'FSM状态' },
+                { key: 'totalDurationMs', label: '总耗时(ms)' },
+                { key: 'graphVersion', label: '策略/图版本' },
+                { key: 'contextVersion', label: '上下文版本' },
+                { key: 'nodeCount', label: '节点数' },
+                { key: 'edgeCount', label: '跳转次数' }
+            ];
+            const nodeCount1 = t1.nodeTraces ? t1.nodeTraces.length : 0;
+            const nodeCount2 = t2.nodeTraces ? t2.nodeTraces.length : 0;
+            const edgeCount1 = t1.edgeTraces ? t1.edgeTraces.length : 0;
+            const edgeCount2 = t2.edgeTraces ? t2.edgeTraces.length : 0;
+
+            let html = '<table style="width:100%; border-collapse:collapse; font-size:12px; margin-top:6px;">';
+            html += '<thead><tr>' +
+                '<th style="border-bottom:1px solid #eee; padding:4px;">指标</th>' +
+                '<th style="border-bottom:1px solid #eee; padding:4px;">执行1</th>' +
+                '<th style="border-bottom:1px solid #eee; padding:4px;">执行2</th>' +
+                '</tr></thead><tbody>';
+            metrics.forEach(m => {
+                let v1, v2;
+                if (m.key === 'nodeCount') {
+                    v1 = nodeCount1;
+                    v2 = nodeCount2;
+                } else if (m.key === 'edgeCount') {
+                    v1 = edgeCount1;
+                    v2 = edgeCount2;
+                } else {
+                    v1 = t1[m.key] != null ? t1[m.key] : '';
+                    v2 = t2[m.key] != null ? t2[m.key] : '';
+                }
+                html += `<tr>
+                    <td style="border-bottom:1px solid #f5f5f5; padding:4px;">${m.label}</td>
+                    <td style="border-bottom:1px solid #f5f5f5; padding:4px;">${escapeHtml(String(v1))}</td>
+                    <td style="border-bottom:1px solid #f5f5f5; padding:4px;">${escapeHtml(String(v2))}</td>
+                </tr>`;
+            });
+            html += '</tbody></table>';
+            panel.innerHTML = html;
+        }
     </script>
 </body>
 </html>

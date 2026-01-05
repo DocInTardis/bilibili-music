@@ -36,5 +36,8 @@ public class ExecutionOverview {
     private boolean hasError;
 
     /** 最后一个失败节点名称列表（可选，用于展示） */
-    private List<String> failedNodes;
+    private java.util.List<String> failedNodes;
+
+    /** 最近一次执行ID（用于 Debug/对比） */
+    private String latestExecutionId;
 }
