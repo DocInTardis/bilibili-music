@@ -18,6 +18,9 @@ import org.springframework.stereotype.Component;
 public class NoSummaryPlaylistAgentPolicy implements PlaylistAgentPolicy {
 
     @Override
+    public java.util.Set<String> getSupportedModes() {
+        return java.util.Collections.singleton("no_summary");
+    }
     public void configure(PlaylistAgentGraph graph, PlaylistAgentGraphBuilder builder) {
         // 1. 添加所有节点（除了 generate_summary）
         graph.addNode("intent_understanding",

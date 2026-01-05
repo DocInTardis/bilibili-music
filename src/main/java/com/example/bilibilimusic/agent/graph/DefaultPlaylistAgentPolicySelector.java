@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.util.Arrays;
+import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -17,9 +18,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class DefaultPlaylistAgentPolicySelector implements PlaylistAgentPolicySelector {
 
-    private final DefaultPlaylistAgentPolicy defaultPlaylistAgentPolicy;
-    private final LowCostPlaylistAgentPolicy lowCostPlaylistAgentPolicy;
-    private final NoSummaryPlaylistAgentPolicy noSummaryPlaylistAgentPolicy;
+    private final List<PlaylistAgentPolicy> policies;
 
     @Override
     public PlaylistAgentPolicy selectPolicy(PlaylistRequest request) {
@@ -34,20 +33,43 @@ public class DefaultPlaylistAgentPolicySelector implements PlaylistAgentPolicySe
 
         boolean lowCost = tags.contains("low_cost");
         boolean noSummary = tags.contains("no_summary");
-        
-        PlaylistAgentPolicy policy;
+            
+        PlaylistAgentPolicy policy = null;
         if (noSummary) {
             // “无摘要”场景优先于成本维度：结构差异更大
-            policy = noSummaryPlaylistAgentPolicy;
-        } else if (lowCost) {
-            policy = lowCostPlaylistAgentPolicy;
-        } else {
-            // 未显式指定结构策略时，简单做一次在线 A/B：在 default 和 low_cost 之间随机分桶
-            boolean bucketLowCost = Math.random() < 0.5;
-            policy = bucketLowCost ? lowCostPlaylistAgentPolicy : defaultPlaylistAgentPolicy;
+            policy = findPolicyByModeTag("no_summary");
         }
-        
-        log.info("[PolicySelector] 选择策略: rawMode={}, tags={}, policy={}", mode, tags, policy.getClass().getSimpleName());
+        if (policy == null && lowCost) {
+            policy = findPolicyByModeTag("low_cost");
+        }
+        if (policy == null) {
+            PlaylistAgentPolicy defaultPolicy = findPolicyByModeTag("default");
+            PlaylistAgentPolicy lowCostPolicy = findPolicyByModeTag("low_cost");
+            if (defaultPolicy != null && lowCostPolicy != null) {
+                // 未显式指定结构策略时，简单做一次在线 A/B：在 default 和 low_cost 之间随机分桶
+                boolean bucketLowCost = Math.random() < 0.5;
+                policy = bucketLowCost ? lowCostPolicy : defaultPolicy;
+            } else if (defaultPolicy != null) {
+                policy = defaultPolicy;
+            } else if (!policies.isEmpty()) {
+                policy = policies.get(0);
+            }
+        }
+            
+        log.info("[PolicySelector] 选择策略: rawMode={}, tags={}, policy={}", mode, tags,
+            policy != null ? policy.getName() : "<none>");
         return policy;
+    }
+    
+    private PlaylistAgentPolicy findPolicyByModeTag(String tag) {
+        if (tag == null || tag.isBlank()) {
+            return null;
+        }
+        for (PlaylistAgentPolicy policy : policies) {
+            if (policy.getSupportedModes().contains(tag)) {
+                return policy;
+            }
+        }
+        return null;
     }
 }

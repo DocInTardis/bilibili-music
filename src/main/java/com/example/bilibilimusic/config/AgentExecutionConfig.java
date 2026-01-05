@@ -1,5 +1,6 @@
 package com.example.bilibilimusic.config;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.HashMap;
@@ -11,25 +12,38 @@ import java.util.Map;
  * 目前主要提供：
  * 1. 不同策略下的整体最大执行时长（毫秒）；
  * 2. 不同策略下的默认节点重试次数；
- * 3. 可按策略/节点名覆盖某些节点的最大重试次数。
+ * 3. 可按策略/节点名覆盖某些节点的最大重试次数；
+ * 4. 关键路径性能相关阈值（最慢节点、总耗时、LLM 平均耗时等）。
  *
- * 先以代码形式集中管理，后续如有需要可以再外移到 application.yml。
+ * 通过 @Value 支持多环境参数隔离，具体值可在 application-*.yml 中按需覆盖。
  */
 @Component
 public class AgentExecutionConfig {
 
     // 默认整体最大执行时长（毫秒）
-    private static final long DEFAULT_MAX_DURATION_MS = 60_000L;
+    @Value("${agent.execution.default-max-duration-ms:60000}")
+    private long defaultMaxDurationMs;
 
     // 默认节点级最大重试次数（不含首次尝试）
-    private static final int DEFAULT_MAX_NODE_RETRIES = 1;
+    @Value("${agent.execution.default-max-node-retries:1}")
+    private int defaultMaxNodeRetries;
+
+    // 关键路径性能告警阈值（毫秒）
+    @Value("${agent.metrics.slow-node-warn-threshold-ms:2000}")
+    private long slowNodeWarnThresholdMs;
+
+    @Value("${agent.metrics.total-exec-warn-threshold-ms:15000}")
+    private long totalExecWarnThresholdMs;
+
+    @Value("${agent.metrics.llm-avg-warn-threshold-ms:1500}")
+    private long llmAvgWarnThresholdMs;
 
     /**
      * 获取指定策略下的整体最大执行时长。
      */
     public long getMaxDurationMs(String policyName) {
         // 目前所有策略统一使用默认值，如有需要可以按策略名做区分
-        return DEFAULT_MAX_DURATION_MS;
+        return defaultMaxDurationMs;
     }
 
     /**
@@ -37,7 +51,7 @@ public class AgentExecutionConfig {
      */
     public int getDefaultMaxNodeRetries(String policyName) {
         // 目前所有策略统一使用默认值，如有需要可以按策略名做区分
-        return DEFAULT_MAX_NODE_RETRIES;
+        return defaultMaxNodeRetries;
     }
 
     /**
@@ -50,5 +64,17 @@ public class AgentExecutionConfig {
         // overrides.put("VideoRetrievalNode", 2);
         // overrides.put("GenerateSummaryNode", 0);
         return overrides;
+    }
+
+    public long getSlowNodeWarnThresholdMs() {
+        return slowNodeWarnThresholdMs;
+    }
+
+    public long getTotalExecWarnThresholdMs() {
+        return totalExecWarnThresholdMs;
+    }
+
+    public long getLlmAvgWarnThresholdMs() {
+        return llmAvgWarnThresholdMs;
     }
 }

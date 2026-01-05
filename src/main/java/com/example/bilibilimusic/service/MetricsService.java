@@ -5,6 +5,7 @@ import com.example.bilibilimusic.dto.ExecutionMetrics;
 import com.example.bilibilimusic.dto.ExecutionTrace;
 import com.example.bilibilimusic.dto.NodeTrace;
 import com.example.bilibilimusic.skill.CurationSkill;
+import com.example.bilibilimusic.config.AgentExecutionConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -22,7 +23,8 @@ public class MetricsService {
     
     private final CurationSkill curationSkill;
     private final AgentMetricsService agentMetricsService;
-    
+    private final AgentExecutionConfig agentExecutionConfig;
+        
     // 关键路径性能告警阈值（毫秒）
     private static final long SLOW_NODE_WARN_THRESHOLD_MS = 2_000L;      // 单节点超过 2s
     private static final long TOTAL_EXEC_WARN_THRESHOLD_MS = 15_000L;    // 总执行超过 15s
@@ -154,20 +156,23 @@ public class MetricsService {
         log.info("最慢节点: {} ({}ms)", metrics.getSlowestNode(), metrics.getSlowestNodeDuration());
     
         // 关键路径性能告警（仅打印日志，后续可接入告警系统）
+        long slowNodeThreshold = agentExecutionConfig.getSlowNodeWarnThresholdMs();
+        long totalExecThreshold = agentExecutionConfig.getTotalExecWarnThresholdMs();
+        long llmAvgThreshold = agentExecutionConfig.getLlmAvgWarnThresholdMs();
         if (metrics.getSlowestNodeDuration() != null
-                && metrics.getSlowestNodeDuration() > SLOW_NODE_WARN_THRESHOLD_MS) {
+                && metrics.getSlowestNodeDuration() > slowNodeThreshold) {
             log.warn("[PerfWarn] 最慢节点耗时过长: node={} duration={}ms (threshold={}ms)",
-                metrics.getSlowestNode(), metrics.getSlowestNodeDuration(), SLOW_NODE_WARN_THRESHOLD_MS);
+                metrics.getSlowestNode(), metrics.getSlowestNodeDuration(), slowNodeThreshold);
         }
         if (metrics.getTotalExecutionTime() != null
-                && metrics.getTotalExecutionTime() > TOTAL_EXEC_WARN_THRESHOLD_MS) {
+                && metrics.getTotalExecutionTime() > totalExecThreshold) {
             log.warn("[PerfWarn] 总执行时间过长: total={}ms (threshold={}ms)",
-                metrics.getTotalExecutionTime(), TOTAL_EXEC_WARN_THRESHOLD_MS);
+                metrics.getTotalExecutionTime(), totalExecThreshold);
         }
         if (metrics.getLlmAvgResponseTime() != null
-                && metrics.getLlmAvgResponseTime() > LLM_AVG_WARN_THRESHOLD_MS) {
+                && metrics.getLlmAvgResponseTime() > llmAvgThreshold) {
             log.warn("[PerfWarn] LLM 平均响应时间过长: avg={}ms (threshold={}ms)",
-                metrics.getLlmAvgResponseTime(), LLM_AVG_WARN_THRESHOLD_MS);
+                metrics.getLlmAvgResponseTime(), llmAvgThreshold);
         }
         log.info("==================================");
     }

@@ -16,6 +16,9 @@ import org.springframework.stereotype.Component;
 public class DefaultPlaylistAgentPolicy implements PlaylistAgentPolicy {
 
     @Override
+    public java.util.Set<String> getSupportedModes() {
+        return java.util.Collections.singleton("default");
+    }
     public void configure(PlaylistAgentGraph graph, PlaylistAgentGraphBuilder builder) {
         // 1. 添加所有节点
         graph.addNode("intent_understanding",

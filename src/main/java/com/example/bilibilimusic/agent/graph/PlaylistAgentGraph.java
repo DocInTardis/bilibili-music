@@ -27,7 +27,11 @@ public class PlaylistAgentGraph {
     private final AgentBehaviorLogService behaviorLogService;
     private final AgentMetricsService metricsService;
     private final ContextPersistenceService contextPersistenceService;
-    
+        
+    // 图定义版本号，用于区分不同版本的状态图结构
+    @Getter
+    private String graphVersion = "playlist-agent-v1";
+        
     // 最大执行时长（毫秒），用于防止整体执行时间过长
     private long maxDurationMs = 60_000L;
     
@@ -168,6 +172,8 @@ public class PlaylistAgentGraph {
             .playlistId(state.getPlaylistId())
             .startTime(System.currentTimeMillis())
             .status("RUNNING")
+            .contextVersion(state.getContextVersion())
+            .graphVersion(graphVersion)
             .build();
 
         executionState = ExecutionState.RUNNING;

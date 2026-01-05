@@ -18,6 +18,9 @@ import org.springframework.stereotype.Component;
 public class LowCostPlaylistAgentPolicy implements PlaylistAgentPolicy {
 
     @Override
+    public java.util.Set<String> getSupportedModes() {
+        return java.util.Collections.singleton("low_cost");
+    }
     public void configure(PlaylistAgentGraph graph, PlaylistAgentGraphBuilder builder) {
         // 与默认策略保持相同的图结构，区别由 Skill 内根据 mode=low_cost 走降级路径实现
 
