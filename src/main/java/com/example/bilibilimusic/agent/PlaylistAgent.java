@@ -16,6 +16,8 @@ import com.example.bilibilimusic.service.ExecutionLockService;
 import com.example.bilibilimusic.service.MetricsService;
 import com.example.bilibilimusic.service.AgentMetricsService;
 import com.example.bilibilimusic.service.RecommendationExplanationService;
+import com.example.bilibilimusic.service.AgentCircuitBreakerService;
+import com.example.bilibilimusic.dto.AgentErrorCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -53,6 +55,7 @@ public class PlaylistAgent {
     private final ExecutionLockService executionLockService;
     private final AgentMetricsService agentMetricsService;
     private final RecommendationExplanationService explanationService;
+    private final AgentCircuitBreakerService circuitBreakerService;
     
     /**
      * 执行歌单生成任务（使用状态机 + 持久化 + 锁）
@@ -65,7 +68,20 @@ public class PlaylistAgent {
         log.info("[PlaylistAgent] 开始执行任务（状态机模式）");
         log.info("[PlaylistAgent] 用户输入：{}", request.getQuery());
         log.info("=".repeat(60));
-            
+                    
+        // -1. 全局熔断判断
+        if (!circuitBreakerService.allowExecution()) {
+            log.warn("[PlaylistAgent] 全局熔断已开启，拒绝执行新任务");
+            statusCallback.accept("⚠️ 系统当前较忙，已暂时暂停新的推荐任务，请稍后再试");
+            return PlaylistResponse.builder()
+                .videos(Collections.emptyList())
+                .summary("系统当前较忙，已暂时暂停新的推荐任务，请稍后再试")
+                .trashVideos(Collections.emptyList())
+                .mp3Files(Collections.emptyList())
+                .errorCode(AgentErrorCode.CIRCUIT_OPEN.name())
+                .build();
+        }
+                    
         // 0. 创建或获取当前活跃会话，并创建播放列表
         Conversation conversation = databaseService.getOrCreateActiveConversation();
         Long conversationId = conversation.getId();
@@ -90,6 +106,7 @@ public class PlaylistAgent {
                 .summary("该播放列表正在生成中")
                 .trashVideos(Collections.emptyList())
                 .mp3Files(Collections.emptyList())
+                .errorCode(AgentErrorCode.PLAYLIST_LOCKED.name())
                 .build();
         }
         
@@ -118,11 +135,21 @@ public class PlaylistAgent {
             ExecutionTrace trace = graph.getExecutionTrace();
             ExecutionMetrics metrics = metricsService.calculateMetrics(trace, context, strategy);
             metricsService.recordMetrics(metrics);
-                        
+            
+            // 基于执行结果推导错误码（如有）
+            AgentErrorCode errorCode = null;
+            if (trace != null && "TIMEOUT".equalsIgnoreCase(trace.getStatus())) {
+                errorCode = AgentErrorCode.EXECUTION_TIMEOUT;
+            } else if (metrics != null && metrics.getTotalSearched() != null
+                    && metrics.getTotalSearched() == 0) {
+                errorCode = AgentErrorCode.SEARCH_EMPTY;
+            }
+                                    
             // 5.5 完成 Runtime Metrics
             long totalTime = System.currentTimeMillis() - startTime;
             agentMetricsService.finishMetrics(playlistId, totalTime, true, null);
-            
+            circuitBreakerService.recordSuccess();
+                        
             // 6. 更新播放列表状态
             if (context.getPlaylistId() != null) {
                 int playlistTargetCount = context.getIntent().getTargetCount();
@@ -140,22 +167,27 @@ public class PlaylistAgent {
             log.info("[PlaylistAgent] 任务完成");
             log.info("=".repeat(60));
             statusCallback.accept("✅ 歌单生成完成");
-            
+                        
             // 8. 构建响应
-            return buildResponse(context, metrics);
+            return buildResponse(context, metrics, errorCode);
             
         } catch (Exception e) {
             log.error("[PlaylistAgent] 任务执行失败: playlistId={}", playlistId, e);
             statusCallback.accept("❌ 任务执行失败: " + e.getMessage());
-            
+        
             // 记录失败 Metrics
             agentMetricsService.finishMetrics(playlistId, 0L, false, e.getMessage());
-            
+            circuitBreakerService.recordFailure(e);
+        
+            // 根据异常类型细化错误码
+            AgentErrorCode errorCode = resolveErrorCodeFromException(e);
+        
             return PlaylistResponse.builder()
                 .videos(Collections.emptyList())
                 .summary("任务执行失败: " + e.getMessage())
                 .trashVideos(Collections.emptyList())
                 .mp3Files(Collections.emptyList())
+                .errorCode(errorCode.name())
                 .build();
                 
         } finally {
@@ -180,6 +212,7 @@ public class PlaylistAgent {
                 .summary("该播放列表正在执行中，暂不支持 Debug 重跑")
                 .trashVideos(Collections.emptyList())
                 .mp3Files(Collections.emptyList())
+                .errorCode(AgentErrorCode.PLAYLIST_LOCKED.name())
                 .build();
         }
 
@@ -197,7 +230,7 @@ public class PlaylistAgent {
                     .mp3Files(Collections.emptyList())
                     .build();
             }
-
+        
             Long conversationId = context.getConversationId();
 
             // 基于快照中的 intent.mode 构造一个最小的请求，用于策略选择
@@ -232,18 +265,23 @@ public class PlaylistAgent {
             // 完成 Runtime Metrics
             long totalTime = System.currentTimeMillis() - startTime;
             agentMetricsService.finishMetrics(playlistId, totalTime, true, null);
-
+        
             statusCallback.accept("✅ Debug 重跑完成");
-            return buildResponse(context, metrics);
+            return buildResponse(context, metrics, null);
         } catch (Exception e) {
             log.error("[PlaylistAgent][DebugReplay] 重跑失败: playlistId={}", playlistId, e);
             statusCallback.accept("❌ Debug 重跑失败: " + e.getMessage());
             agentMetricsService.finishMetrics(playlistId, 0L, false, e.getMessage());
+            circuitBreakerService.recordFailure(e);
+        
+            AgentErrorCode errorCode = resolveErrorCodeFromException(e);
+        
             return PlaylistResponse.builder()
                 .videos(Collections.emptyList())
                 .summary("Debug 重跑失败: " + e.getMessage())
                 .trashVideos(Collections.emptyList())
                 .mp3Files(Collections.emptyList())
+                .errorCode(errorCode.name())
                 .build();
         } finally {
             executionLockService.unlock(playlistId);
@@ -319,15 +357,30 @@ public class PlaylistAgent {
         }
     }
     
-    /**
-     * 视频逐个判断循环：内容分析 + 数量估算 + 采纳决策 + 流式反馈
-     */
-    // 已完全由状态机节点替代，保留方法签名已无必要，故删除
+    private AgentErrorCode resolveErrorCodeFromException(Exception e) {
+        if (e == null) {
+            return AgentErrorCode.INTERNAL_ERROR;
+        }
+        Throwable cause = e;
+        while (cause != null) {
+            String msg = cause.getMessage();
+            String lower = msg != null ? msg.toLowerCase() : "";
+            if (cause instanceof java.util.concurrent.TimeoutException || lower.contains("timeout")) {
+                return AgentErrorCode.LLM_TIMEOUT;
+            }
+            if (lower.contains("llm 调用失败") || lower.contains("llm 调用超时")
+                    || lower.contains("llm timeout") || lower.contains("llm failed")) {
+                return AgentErrorCode.LLM_ERROR;
+            }
+            cause = cause.getCause();
+        }
+        return AgentErrorCode.INTERNAL_ERROR;
+    }
 
     /**
      * 构建响应（流式模式下只返回摘要和垃圾桶候选，不返回视频列表）
      */
-    private PlaylistResponse buildResponse(PlaylistContext context, ExecutionMetrics metrics) {
+    private PlaylistResponse buildResponse(PlaylistContext context, ExecutionMetrics metrics, AgentErrorCode errorCode) {
         Double confidence = null;
         if (metrics != null) {
             Double hitRate = metrics.getHitRate();
@@ -360,7 +413,6 @@ public class PlaylistAgent {
             log.warn("[推荐解释] 生成失败", e);
         }
 
-        // 流式模式：视频已经通过 WebSocket 逐个发送，这里只返回空列表
         return PlaylistResponse.builder()
             .videos(Collections.emptyList())  // 不再返回视频列表
             .summary(context.getSummary())
@@ -368,6 +420,7 @@ public class PlaylistAgent {
             .mp3Files(Collections.emptyList())
             .confidence(confidence)
             .explanation(explanation)
+            .errorCode(errorCode != null ? errorCode.name() : null)
             .build();
     }
 

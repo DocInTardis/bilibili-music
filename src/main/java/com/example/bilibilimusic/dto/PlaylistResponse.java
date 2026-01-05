@@ -36,6 +36,11 @@ public class PlaylistResponse {
     private Double confidence;
     
     /**
+     * 统一异常码（为空表示成功）
+     */
+    private String errorCode;
+    
+    /**
      * 推荐结果解释（结构化），用于向用户说明为什么推荐这些视频。
      * 包含：匹配因素、偏好加成、探索策略、冷启动状态等。
      */
