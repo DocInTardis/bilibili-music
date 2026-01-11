@@ -12,6 +12,8 @@ import lombok.extern.slf4j.Slf4j;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.stream.Collectors;
 
 /**
  * 预排序节点：对搜索结果按优先级排序（使用 Redis 偏好缓存）
@@ -38,8 +40,28 @@ public class PreSortVideosNode implements AgentNode {
             log.warn("[PreSort] 搜索结果为空，无需排序");
             return NodeResult.success("content_analysis");
         }
-
+        
         log.info("[PreSort] 开始对 {} 个视频进行预排序", videos.size());
+        
+        // 先做一层基于本地规则的硬过滤（明显不符合需求的视频直接丢入垃圾桶，减少后续处理开销）
+        List<VideoInfo> original = new ArrayList<>(videos);
+        List<VideoInfo> filtered = new ArrayList<>();
+        for (VideoInfo v : original) {
+            if (shouldHardReject(v, intent)) {
+                state.getTrashVideos().add(v);
+            } else {
+                filtered.add(v);
+            }
+        }
+        log.info("[PreSort] 本地规则过滤后剩余 {} 个候选（原始 {} 个）", filtered.size(), original.size());
+        if (filtered.isEmpty()) {
+            state.setSearchResults(filtered);
+            state.setCurrentVideoIndex(0);
+            state.setAccumulatedCount(0);
+            state.setTargetReached(false);
+            state.setShouldContinue(false);
+            return NodeResult.success("content_analysis");
+        }
         
         // 从数据库获取用户偏好权重（个性化推荐，含时间衰减）
         Long conversationId = state.getConversationId();
@@ -50,23 +72,29 @@ public class PreSortVideosNode implements AgentNode {
         Map<String, Integer> keywordPrefs = userId != null 
             ? preferenceService.getUserKeywordPreferences(userId)
             : preferenceService.getKeywordPreferences(conversationId);
-                        
+                                
         log.info("[PreSort] 加载偏好权重 - userId={}, 艺人: {}, 关键词: {}", userId, artistPrefs.size(), keywordPrefs.size());
-        
-        videos.sort(Comparator.comparing((VideoInfo v) -> isPlaylistStyle(v))
+                
+        // 使用并行流计算排序权重并排序，充分利用多核能力
+        Comparator<VideoInfo> comparator = Comparator.comparing((VideoInfo v) -> isPlaylistStyle(v))
             .thenComparing((VideoInfo v) -> -calculateKeywordMatchScoreWithPreference(v, intent, artistPrefs, keywordPrefs))
             .thenComparingInt((VideoInfo v) -> calculateDeviationFromOptimal(
                 parseDurationToSeconds(v.getDuration()), 180, 300))
             .thenComparing((VideoInfo v) -> v.getPlayCount() != null ? -v.getPlayCount() : 0L)
-            .thenComparing((VideoInfo v) -> v.getCommentCount() != null ? -v.getCommentCount() : 0L)
-        );
-
+            .thenComparing((VideoInfo v) -> v.getCommentCount() != null ? -v.getCommentCount() : 0L);
+        
+        List<VideoInfo> sorted = filtered.parallelStream()
+            .sorted(comparator)
+            .collect(Collectors.toList());
+        
+        state.setSearchResults(sorted);
+        
         // 初始化循环控制字段
         state.setCurrentVideoIndex(0);
         state.setAccumulatedCount(0);
         state.setTargetReached(false);
         state.setShouldContinue(true);
-
+        
         return NodeResult.success("content_analysis");
     }
 
@@ -76,6 +104,35 @@ public class PreSortVideosNode implements AgentNode {
         String t = title.toLowerCase();
         return t.contains("合集") || t.contains("歌单") || t.contains("串烧")
             || t.contains("mix") || t.contains("playlist") || t.contains("连播");
+    }
+
+    private boolean shouldHardReject(VideoInfo video, UserIntent intent) {
+        StringBuilder sb = new StringBuilder();
+        if (video.getTitle() != null) sb.append(video.getTitle()).append(' ');
+        if (video.getTags() != null) sb.append(video.getTags()).append(' ');
+        if (video.getDescription() != null) sb.append(video.getDescription()).append(' ');
+        String text = sb.toString().toLowerCase();
+
+        // 负向关键词粗过滤
+        String[] negativeKeywords = {
+            "教程", "教学", "教程", "reaction", "剪辑", "混剪", "集锦", "解说", "讲解", "翻唱", "现场", "live"
+        };
+        for (String nk : negativeKeywords) {
+            if (nk == null || nk.isBlank()) continue;
+            if (text.contains(nk.toLowerCase())) {
+                log.debug("[PreSort] 负向关键词过滤: {} -> {}", nk, video.getTitle());
+                return true;
+            }
+        }
+
+        // 明显异常时长过滤（过短或过长的视频）
+        int durationSeconds = parseDurationToSeconds(video.getDuration());
+        if (durationSeconds > 0 && (durationSeconds < 30 || durationSeconds > 3600)) {
+            log.debug("[PreSort] 时长异常过滤: {}s -> {}", durationSeconds, video.getTitle());
+            return true;
+        }
+
+        return false;
     }
 
     private int parseDurationToSeconds(String duration) {

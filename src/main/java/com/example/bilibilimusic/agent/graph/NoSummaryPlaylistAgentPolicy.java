@@ -38,7 +38,7 @@ public class NoSummaryPlaylistAgentPolicy implements PlaylistAgentPolicy {
         graph.addNode("content_analysis",
             new ContentAnalysisNode(builder.getMessagingTemplate()));
         graph.addNode("quantity_estimation",
-            new QuantityEstimationNode());
+            new QuantityEstimationNode(builder.getAudioFingerprintService()));
         graph.addNode("relevance_decision",
             new RelevanceDecisionNode(builder.getRelevanceScorer(), builder.getPreferenceService(), builder.getCacheService()));
         graph.addNode("video_accepted",

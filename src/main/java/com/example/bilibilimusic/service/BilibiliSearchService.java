@@ -17,6 +17,12 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CompletableFuture;
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 
 @Service
 @RequiredArgsConstructor
@@ -31,11 +37,36 @@ public class BilibiliSearchService {
      */
     @Value("${bilibili.headless:true}")
     private boolean headless;
-
+    
+    @Value("${bilibili.detail-fetch-concurrency:8}")
+    private int detailFetchConcurrency;
+    
     /**
      * 用于抓取视频详情页（meta keywords / description）
      */
     private final HttpClient httpClient = HttpClient.newHttpClient();
+    
+    private ExecutorService detailExecutor;
+    
+    @PostConstruct
+    public void initDetailExecutor() {
+        detailExecutor = Executors.newFixedThreadPool(detailFetchConcurrency);
+    }
+    
+    @PreDestroy
+    public void shutdownDetailExecutor() {
+        if (detailExecutor != null) {
+            detailExecutor.shutdown();
+            try {
+                if (!detailExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                    detailExecutor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                detailExecutor.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
         
     /**
      * 根据单个视频 URL 抓取视频信息（用于手动添加）
@@ -181,9 +212,14 @@ public class BilibiliSearchService {
                 }
             }
             
-            // 使用 Playwright 进入视频详情页，补充抓取标签和简介
-            enrichVideoDetailsWithPlaywright(playwright, result);
-            
+            // 优先使用 HttpClient 并行抓取详情，失败时回退到 Playwright 方案
+            try {
+                enrichVideoDetailsWithHttp(result);
+            } catch (Exception ex) {
+                log.warn("HTTP 抓取视频详情失败，将回退到 Playwright 方案: {}", ex.getMessage());
+                enrichVideoDetailsWithPlaywright(playwright, result);
+            }
+                        
             log.info("最终解析到 {} 个视频", result.size());
         } catch (Exception e) {
             log.error("Playwright 搜索 B 站失败", e);
@@ -191,7 +227,114 @@ public class BilibiliSearchService {
 
         return result;
     }
-
+    
+    /**
+     * 使用 HttpClient 并行抓取视频详情页，提取标题 / 标签 / 简介 / 播放量 / 评论数
+     */
+    private void enrichVideoDetailsWithHttp(List<VideoInfo> videos) {
+        if (videos == null || videos.isEmpty()) {
+            return;
+        }
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
+        for (VideoInfo video : videos) {
+            CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                try {
+                    if (video.getUrl() == null || video.getUrl().isBlank()) {
+                        return;
+                    }
+                    HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(video.getUrl()))
+                        .GET()
+                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                        .build();
+                    HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                    if (response.statusCode() != 200) {
+                        log.debug("HTTP 抓取详情失败，状态码: {} - {}", response.statusCode(), video.getUrl());
+                        return;
+                    }
+                    String html = response.body();
+                    enrichVideoFromHtml(html, video);
+                } catch (Exception e) {
+                    log.debug("HTTP 抓取视频详情失败: {} - {}", video.getUrl(), e.getMessage());
+                }
+            }, detailExecutor);
+            futures.add(future);
+        }
+        for (CompletableFuture<Void> future : futures) {
+            try {
+                future.join();
+            } catch (Exception ignored) {
+            }
+        }
+    }
+    
+    private void enrichVideoFromHtml(String html, VideoInfo video) {
+        if (html == null || html.isBlank()) {
+            return;
+        }
+    
+        // 1. 标题
+        Matcher titleMatcher = Pattern.compile("<title>(.*?)</title>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL)
+            .matcher(html);
+        if (titleMatcher.find()) {
+            String title = titleMatcher.group(1).replaceAll("\\s+", " ").trim();
+            if (!title.isBlank()) {
+                video.setTitle(title);
+            }
+        }
+    
+        // 2. 标签 keywords
+        Matcher kwMatcher = Pattern.compile("<meta[^>]+name=['\"]keywords['\"][^>]*content=['\"](.*?)['\"]", Pattern.CASE_INSENSITIVE | Pattern.DOTALL)
+            .matcher(html);
+        if (kwMatcher.find()) {
+            String keywords = kwMatcher.group(1).trim();
+            if (!keywords.isBlank()) {
+                video.setTags(keywords);
+            }
+        }
+    
+        // 3. 简介 description
+        Matcher descMatcher = Pattern.compile("<meta[^>]+name=['\"]description['\"][^>]*content=['\"](.*?)['\"]", Pattern.CASE_INSENSITIVE | Pattern.DOTALL)
+            .matcher(html);
+        if (descMatcher.find()) {
+            String description = descMatcher.group(1).trim();
+            if (!description.isBlank()) {
+                video.setDescription(description);
+            }
+        }
+    
+        // 4. 播放量 / 评论数
+        Long playCount = extractCountFromHtml(html, "播放", "观看");
+        if (playCount != null) {
+            video.setPlayCount(playCount);
+        }
+        Long commentCount = extractCountFromHtml(html, "评论", "弹幕");
+        if (commentCount != null) {
+            video.setCommentCount(commentCount);
+        }
+    }
+    
+    private Long extractCountFromHtml(String html, String... keywords) {
+        if (html == null || html.isBlank()) {
+            return null;
+        }
+        for (String kw : keywords) {
+            try {
+                Pattern p = Pattern.compile("(\\d[0-9\\.万亿]*)\\s*" + kw);
+                Matcher m = p.matcher(html);
+                if (m.find()) {
+                    String numText = m.group(1);
+                    Long value = parseCountText(numText);
+                    if (value != null) {
+                        return value;
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return null;
+    }
+    
     /**
      * 使用 Playwright 打开每个视频详情页，提取标题 / 标签 / 简介
      */

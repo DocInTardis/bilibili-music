@@ -68,13 +68,20 @@ public class CurationSkill implements Skill {
             List<VideoInfo> deduplicatedVideos = duplicateFilter.filterDuplicates(videos);
             log.info("[CurationSkill] 去重后视频数量: {}", deduplicatedVideos.size());
             
-            // 2. 使用评分系统评估每个视频
-            List<VideoRelevanceScorer.ScoringResult> scoringResults = new ArrayList<>();
+            // 2. 【并行阶段】对所有视频并行计算基础评分（不依赖共享状态）
+            long startTime = System.currentTimeMillis();
+            List<VideoRelevanceScorer.ScoringResult> scoringResults = deduplicatedVideos.parallelStream()
+                .map(video -> relevanceScorer.scoreVideo(video, context.getIntent()))
+                .collect(Collectors.toList());
+            long scoringTime = System.currentTimeMillis() - startTime;
+            log.info("[CurationSkill] 并行评分完成，耗时: {} ms", scoringTime);
+            
+            // 3. 【串行阶段】按顺序进行相似度惩罚计算和视频选择（避免并发写 selectedVideos）
             List<VideoInfo> selectedVideos = new ArrayList<>();
             
-            for (VideoInfo video : deduplicatedVideos) {
-                // 计算相关性分数
-                VideoRelevanceScorer.ScoringResult result = relevanceScorer.scoreVideo(video, context.getIntent());
+            for (int i = 0; i < deduplicatedVideos.size(); i++) {
+                VideoInfo video = deduplicatedVideos.get(i);
+                VideoRelevanceScorer.ScoringResult result = scoringResults.get(i);
                 
                 // 检查与已选择视频的相似度，进行惩罚
                 int similarityPenalty = duplicateFilter.getSimilarityPenalty(video, selectedVideos);
@@ -84,12 +91,10 @@ public class CurationSkill implements Skill {
                     result.setReason(result.getReason() + "; 相似度惩罚: " + similarityPenalty);
                 }
                 
-                scoringResults.add(result);
-                
                 log.debug("[CurationSkill] 视频: {} | 分数: {} | 理由: {}", 
                     video.getTitle(), result.getScore(), result.getReason());
                 
-                // 3. 基于分数决策
+                // 4. 基于分数决策
                 if (result.isReject()) {
                     log.debug("[CurationSkill] 直接拒绝: {}", video.getTitle());
                     continue;

@@ -11,6 +11,7 @@ import com.example.bilibilimusic.service.CacheService;
 import com.example.bilibilimusic.service.ContextPersistenceService;
 import com.example.bilibilimusic.service.DatabaseService;
 import com.example.bilibilimusic.service.UserPreferenceService;
+import com.example.bilibilimusic.service.AudioFingerprintService;
 import com.example.bilibilimusic.skill.*;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -43,6 +44,7 @@ public class PlaylistAgentGraphBuilder {
     private final ContextPersistenceService contextPersistenceService;
     private final PlaylistAgentPolicySelector policySelector;
     private final AgentExecutionConfig agentExecutionConfig;
+    private final AudioFingerprintService audioFingerprintService;
     
     /**
      * 构建 PlaylistAgent 状态图（根据请求选择策略）
