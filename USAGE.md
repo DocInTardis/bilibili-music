@@ -68,6 +68,13 @@ bilibili:
   headless: false  # false=显示浏览器窗口，true=后台运行
 ```
 
+### 环境变量（推荐）
+
+- `MYSQL_URL` / `MYSQL_USERNAME` / `MYSQL_PASSWORD`
+- `REDIS_HOST` / `REDIS_PORT` / `REDIS_DB` / `REDIS_PASSWORD`
+- `OLLAMA_BASE_URL` / `OLLAMA_MODEL`
+- `WS_ALLOWED_ORIGIN_PATTERNS`（生产环境请配置为你的站点域名，避免使用 `*`）
+
 ## 技术栈
 
 - **后端**：Spring Boot 3.3, WebSocket

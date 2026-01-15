@@ -5,17 +5,18 @@ spring:
   # 数据库配置
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3306/bilibili?characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai
-    username: root
-    password: 123456
+    url: ${MYSQL_URL:jdbc:mysql://localhost:3306/bilibili?characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai}
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:}
 
   # Redis 配置
   data:
     redis:
-      host: localhost
-      port: 6379
-      database: 0
-      timeout: 5000ms
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      database: ${REDIS_DB:0}
+      password: ${REDIS_PASSWORD:}
+      timeout: ${REDIS_TIMEOUT:5000ms}
       lettuce:
         pool:
           max-active: 8
@@ -36,12 +37,18 @@ mybatis-plus:
       id-type: auto
 
 ollama:
-  base-url: http://localhost:11434
-  model: qwen:7b
+  base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+  model: ${OLLAMA_MODEL:qwen:7b}
 
 bilibili:
   search-url-template: "https://search.bilibili.com/all?keyword={query}&from_source=webtop_search&spm_id_from=333.1007&search_source=3"
-  headless: false  # 设置为 false 可以显示浏览器窗口，便于调试和观察
+  headless: ${BILIBILI_HEADLESS:false}  # 设置为 false 可以显示浏览器窗口，便于调试和观察
+
+# 安全相关的默认配置（建议按环境覆盖）
+app:
+  websocket:
+    # 生产环境请配置为你的站点域名；避免使用 "*"
+    allowed-origin-patterns: ${WS_ALLOWED_ORIGIN_PATTERNS:http://localhost:*,http://127.0.0.1:*}
 
 logging:
   level:

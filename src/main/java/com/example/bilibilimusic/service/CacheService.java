@@ -7,7 +7,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Service;
@@ -31,7 +30,6 @@ import java.util.stream.Collectors;
 @Slf4j
 public class CacheService {
     
-    private final RedisTemplate<String, Object> redisTemplate;
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
     
@@ -202,10 +200,10 @@ public class CacheService {
         String member = preferenceType + ":" + target.toLowerCase();
         
         // 使用 ZSet 的 incrementScore
-        Double newScore = redisTemplate.opsForZSet().incrementScore(key, member, deltaWeight);
+        Double newScore = stringRedisTemplate.opsForZSet().incrementScore(key, member, deltaWeight);
         
         // 设置过期时间
-        redisTemplate.expire(key, PREFERENCE_CACHE_TTL, TimeUnit.SECONDS);
+        stringRedisTemplate.expire(key, PREFERENCE_CACHE_TTL, TimeUnit.SECONDS);
         
         log.debug("[Cache] 增加用户偏好: conversationId={}, {}={}, newWeight={}", 
             conversationId, preferenceType, target, newScore);
@@ -230,10 +228,9 @@ public class CacheService {
      */
     private Map<String, Integer> getPreferencesByType(Long conversationId, String type) {
         String key = getUserPreferenceKey(conversationId);
-        String pattern = type + ":*";
         
         // 获取所有成员和分数
-        Set<ZSetOperations.TypedTuple<Object>> tuples = redisTemplate.opsForZSet()
+        Set<ZSetOperations.TypedTuple<String>> tuples = stringRedisTemplate.opsForZSet()
             .rangeWithScores(key, 0, -1);
         
         if (tuples == null || tuples.isEmpty()) {
@@ -241,8 +238,8 @@ public class CacheService {
         }
         
         Map<String, Integer> result = new HashMap<>();
-        for (ZSetOperations.TypedTuple<Object> tuple : tuples) {
-            String member = (String) tuple.getValue();
+        for (ZSetOperations.TypedTuple<String> tuple : tuples) {
+            String member = tuple.getValue();
             if (member != null && member.startsWith(type + ":")) {
                 String target = member.substring(type.length() + 1);
                 Integer weight = tuple.getScore() != null ? tuple.getScore().intValue() : 0;
@@ -263,7 +260,7 @@ public class CacheService {
         String key = getUserPreferenceKey(conversationId);
         
         // 按分数倒序获取 Top N
-        Set<ZSetOperations.TypedTuple<Object>> tuples = redisTemplate.opsForZSet()
+        Set<ZSetOperations.TypedTuple<String>> tuples = stringRedisTemplate.opsForZSet()
             .reverseRangeWithScores(key, 0, topN - 1);
         
         if (tuples == null || tuples.isEmpty()) {
@@ -273,7 +270,7 @@ public class CacheService {
         return tuples.stream()
             .filter(tuple -> tuple.getValue() != null && tuple.getScore() != null)
             .collect(Collectors.toMap(
-                tuple -> (String) tuple.getValue(),
+                ZSetOperations.TypedTuple::getValue,
                 tuple -> tuple.getScore().intValue(),
                 (a, b) -> a,
                 LinkedHashMap::new
@@ -285,7 +282,7 @@ public class CacheService {
      */
     public void clearUserPreference(Long conversationId) {
         String key = getUserPreferenceKey(conversationId);
-        redisTemplate.delete(key);
+        stringRedisTemplate.delete(key);
         log.debug("[Cache] 清除用户偏好缓存: conversationId={}", conversationId);
     }
     

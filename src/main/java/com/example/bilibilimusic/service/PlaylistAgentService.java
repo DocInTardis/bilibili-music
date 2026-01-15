@@ -4,12 +4,11 @@ import com.example.bilibilimusic.dto.PlaylistRequest;
 import com.example.bilibilimusic.dto.PlaylistResponse;
 import com.example.bilibilimusic.dto.VideoInfo;
 import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
 
 import java.util.Collections;
 import java.util.List;
 
-@Service
+@Deprecated(forRemoval = true)
 @RequiredArgsConstructor
 public class PlaylistAgentService {
 
