@@ -39,6 +39,8 @@ mybatis-plus:
 ollama:
   base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
   model: ${OLLAMA_MODEL:qwen:7b}
+  embeddings-enabled: ${OLLAMA_EMBEDDINGS_ENABLED:false}
+  embedding-model: ${OLLAMA_EMBED_MODEL:nomic-embed-text}
 
 bilibili:
   search-url-template: "https://search.bilibili.com/all?keyword={query}&from_source=webtop_search&spm_id_from=333.1007&search_source=3"
@@ -49,6 +51,21 @@ app:
   websocket:
     # 生产环境请配置为你的站点域名；避免使用 "*"
     allowed-origin-patterns: ${WS_ALLOWED_ORIGIN_PATTERNS:http://localhost:*,http://127.0.0.1:*}
+    cluster:
+      enabled: ${WS_CLUSTER_ENABLED:false}
+      channel: ${WS_CLUSTER_CHANNEL:ws:topic:broadcast}
+
+audio:
+  fingerprint:
+    enabled: ${AUDIO_FP_ENABLED:false}
+    base-url: ${AUDIO_FP_BASE_URL:}
+    api-key: ${AUDIO_FP_API_KEY:}
+
+agent:
+  prefetch:
+    scoring:
+      enabled: ${AGENT_PREFETCH_SCORING_ENABLED:true}
+      max-videos: ${AGENT_PREFETCH_SCORING_MAX_VIDEOS:50}
 
 logging:
   level:

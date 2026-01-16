@@ -18,6 +18,7 @@ import com.example.bilibilimusic.service.AgentMetricsService;
 import com.example.bilibilimusic.service.RecommendationExplanationService;
 import com.example.bilibilimusic.service.AgentCircuitBreakerService;
 import com.example.bilibilimusic.dto.AgentErrorCode;
+import com.example.bilibilimusic.service.telemetry.AgentTraceContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -349,9 +350,21 @@ public class PlaylistAgent {
         contextPersistenceService.saveContext(playlistId, context);
         
         try {
+            graph.setNodeBeforeHook((nodeName, state) -> {
+                String executionId = graph.getExecutionTrace() != null ? graph.getExecutionTrace().getExecutionId() : null;
+                AgentTraceContext.set(new AgentTraceContext.Context(
+                    state != null ? state.getPlaylistId() : null,
+                    state != null ? state.getConversationId() : null,
+                    executionId,
+                    nodeName
+                ));
+            });
+            graph.setNodeAfterHook((nodeName, state, result) -> AgentTraceContext.clear());
+
             // 执行状态图
             graph.execute(context);
         } finally {
+            AgentTraceContext.clear();
             // 执行后保存（无论成功或失败）
             contextPersistenceService.updateContext(playlistId, context);
         }

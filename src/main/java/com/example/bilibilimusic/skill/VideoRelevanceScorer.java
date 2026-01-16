@@ -5,6 +5,7 @@ import com.example.bilibilimusic.dto.VideoInfo;
 import com.example.bilibilimusic.entity.UserPreference;
 import com.example.bilibilimusic.service.UserBehaviorFeedbackService;
 import com.example.bilibilimusic.service.UserPreferenceService;
+import com.example.bilibilimusic.service.embedding.SemanticRelevanceService;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,6 +32,7 @@ public class VideoRelevanceScorer {
     
     private final UserBehaviorFeedbackService behaviorFeedbackService;
     private final UserPreferenceService preferenceService;
+    private final SemanticRelevanceService semanticRelevanceService;
     
     // ==================== 负关键词（黑名单） ====================
     
@@ -156,6 +158,14 @@ public class VideoRelevanceScorer {
         totalScore += descScore;
         if (descScore > 0) {
             reasons.add(String.format("描述匹配: +%d", descScore));
+        }
+
+        // 5.5 语义匹配（RAG/Embedding）：可选能力，默认关闭；开启后提供额外语义相似度加分
+        int semanticScore = semanticRelevanceService != null ? semanticRelevanceService.semanticScore(intent, video) : 0;
+        features.setSemanticScore(semanticScore);
+        totalScore += semanticScore;
+        if (semanticScore > 0) {
+            reasons.add(String.format("语义匹配: +%d", semanticScore));
         }
             
         // 6. 单一艺人 (+2)
@@ -647,6 +657,9 @@ public class VideoRelevanceScorer {
 
         // 探索/冷启动
         private int explorationBonus;       // 探索加成（取整）
+
+        // 语义检索（embedding）
+        private int semanticScore;          // 语义相似度加分（0..5）
         
         // 序列特征
         private int consecutiveNegativePenalty; // 连续负向行为惩罚（艺人维度）

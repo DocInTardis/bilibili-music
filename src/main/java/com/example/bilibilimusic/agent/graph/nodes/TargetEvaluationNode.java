@@ -2,9 +2,9 @@ package com.example.bilibilimusic.agent.graph.nodes;
 
 import com.example.bilibilimusic.agent.graph.AgentNode;
 import com.example.bilibilimusic.context.PlaylistContext;
+import com.example.bilibilimusic.service.websocket.WsTopicPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -20,7 +20,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class TargetEvaluationNode implements AgentNode {
     
-    private final SimpMessagingTemplate messagingTemplate;
+    private final WsTopicPublisher wsTopicPublisher;
     
     @Override
     public NodeResult execute(PlaylistContext state) {
@@ -54,7 +54,7 @@ public class TargetEvaluationNode implements AgentNode {
         // 推送评估结果
         pushEvaluationResult(state, targetCount, finalCount, trashCount, enough);
         
-        return NodeResult.success("generate_summary");
+        return NodeResult.success();
     }
     
     private void pushEvaluationResult(PlaylistContext context, int targetCount, int finalCount, int trashCount, boolean enough) {
@@ -79,6 +79,6 @@ public class TargetEvaluationNode implements AgentNode {
             .content(content)
             .payload(payload)
             .build();
-        messagingTemplate.convertAndSend("/topic/messages", msg);
+        wsTopicPublisher.send("/topic/messages", msg);
     }
 }

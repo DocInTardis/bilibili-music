@@ -4,10 +4,10 @@ import com.example.bilibilimusic.agent.graph.AgentNode;
 import com.example.bilibilimusic.context.PlaylistContext;
 import com.example.bilibilimusic.dto.VideoInfo;
 import com.example.bilibilimusic.service.CacheService;
+import com.example.bilibilimusic.service.websocket.WsTopicPublisher;
 import com.example.bilibilimusic.skill.RetrievalSkill;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -22,7 +22,7 @@ import java.util.Map;
 public class VideoRetrievalNode implements AgentNode {
     
     private final RetrievalSkill retrievalSkill;
-    private final SimpMessagingTemplate messagingTemplate;
+    private final WsTopicPublisher wsTopicPublisher;
     private final CacheService cacheService;
     
     @Override
@@ -56,7 +56,7 @@ public class VideoRetrievalNode implements AgentNode {
         pushSearchResults(state);
         
         log.info("[RetrievalNode] 检索成功，找到 {} 个视频", state.getSearchResults().size());
-        return NodeResult.success("check_results");
+        return NodeResult.success();
     }
     
     private void pushSearchResults(PlaylistContext context) {
@@ -83,6 +83,6 @@ public class VideoRetrievalNode implements AgentNode {
             .content(String.format("🔍 搜索到 %d 个视频", context.getSearchResults().size()))
             .payload(payload)
             .build();
-        messagingTemplate.convertAndSend("/topic/messages", msg);
+        wsTopicPublisher.send("/topic/messages", msg);
     }
 }

@@ -4,11 +4,11 @@ import com.example.bilibilimusic.agent.PlaylistAgent;
 import com.example.bilibilimusic.dto.ChatMessage;
 import com.example.bilibilimusic.dto.PlaylistRequest;
 import com.example.bilibilimusic.dto.PlaylistResponse;
+import com.example.bilibilimusic.service.websocket.WsTopicPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.SendTo;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Controller;
 
 @Controller
@@ -17,7 +17,7 @@ import org.springframework.stereotype.Controller;
 public class ChatWebSocketController {
 
     private final PlaylistAgent playlistAgent;
-    private final SimpMessagingTemplate messagingTemplate;
+    private final WsTopicPublisher wsTopicPublisher;
 
     @MessageMapping("/chat")
     @SendTo("/topic/messages")
@@ -37,7 +37,7 @@ public class ChatWebSocketController {
                         .type("status")
                         .content(status)
                         .build();
-                    messagingTemplate.convertAndSend("/topic/messages", statusMsg);
+                    wsTopicPublisher.send("/topic/messages", statusMsg);
                 });
 
                 // 返回结果消息

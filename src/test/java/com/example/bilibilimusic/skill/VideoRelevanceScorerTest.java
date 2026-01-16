@@ -4,6 +4,7 @@ import com.example.bilibilimusic.context.UserIntent;
 import com.example.bilibilimusic.dto.VideoInfo;
 import com.example.bilibilimusic.service.UserBehaviorFeedbackService;
 import com.example.bilibilimusic.service.UserPreferenceService;
+import com.example.bilibilimusic.service.embedding.SemanticRelevanceService;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -18,7 +19,8 @@ class VideoRelevanceScorerTest {
     void negativeKeywordShouldReject() {
         UserBehaviorFeedbackService behavior = mock(UserBehaviorFeedbackService.class);
         UserPreferenceService preference = mock(UserPreferenceService.class);
-        VideoRelevanceScorer scorer = new VideoRelevanceScorer(behavior, preference);
+        SemanticRelevanceService semantic = mock(SemanticRelevanceService.class);
+        VideoRelevanceScorer scorer = new VideoRelevanceScorer(behavior, preference, semantic);
 
         UserIntent intent = UserIntent.builder()
             .query("随便来点歌")
@@ -37,4 +39,3 @@ class VideoRelevanceScorerTest {
         assertTrue(result.getReason().contains("负关键词"));
     }
 }
-

@@ -43,10 +43,17 @@ public class DatabaseService {
             // 创建新会话
             conversation = new Conversation();
             conversation.setStatus("ACTIVE");
+            // 单用户模式的默认 userId，便于“跨会话在线学习”聚合
+            conversation.setUserId(1L);
             conversation.setCreatedAt(LocalDateTime.now());
             conversation.setUpdatedAt(LocalDateTime.now());
             conversationMapper.insert(conversation);
             log.info("创建新会话，ID: {}", conversation.getId());
+        } else if (conversation.getUserId() == null) {
+            // 兼容旧数据：补齐 userId，避免偏好无法按用户聚合
+            conversation.setUserId(1L);
+            conversation.setUpdatedAt(LocalDateTime.now());
+            conversationMapper.updateById(conversation);
         }
         
         return conversation;
@@ -285,11 +292,26 @@ public class DatabaseService {
         // 创建新对话
         Conversation conversation = new Conversation();
         conversation.setStatus("ACTIVE");
+        conversation.setUserId(1L);
         conversation.setCreatedAt(LocalDateTime.now());
         conversation.setUpdatedAt(LocalDateTime.now());
         conversationMapper.insert(conversation);
         log.info("创建新对话窗口，ID: {}", conversation.getId());
         return conversation;
+    }
+
+    /**
+     * 根据 BV 号查询视频缓存记录
+     */
+    public Video findVideoByBvid(String bvid) {
+        if (bvid == null || bvid.isBlank()) {
+            return null;
+        }
+        LambdaQueryWrapper<Video> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Video::getPlatform, "bilibili")
+            .eq(Video::getPlatformVid, bvid)
+            .last("LIMIT 1");
+        return videoMapper.selectOne(wrapper);
     }
     
     /**

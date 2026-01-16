@@ -31,6 +31,12 @@ public class PlaylistAgentGraph {
     // 图定义版本号，用于区分不同版本的状态图结构
     @Getter
     private String graphVersion = "playlist-agent-v1";
+
+    public void setGraphVersion(String graphVersion) {
+        if (graphVersion != null && !graphVersion.isBlank()) {
+            this.graphVersion = graphVersion;
+        }
+    }
         
     // 最大执行时长（毫秒），用于防止整体执行时间过长
     private long maxDurationMs = 60_000L;
@@ -398,7 +404,7 @@ public class PlaylistAgentGraph {
             executionTrace.setTotalDurationMs(endTime - executionTrace.getStartTime());
             executionTrace.setFsmState(executionState != null ? executionState.name() : null);
             executionTrace.setContextVersion(state != null ? state.getContextVersion() : null);
-            executionTrace.setGraphVersion(policyName);
+            executionTrace.setGraphVersion(graphVersion);
             
             // 持久化完整执行追踪，配合节点快照用于 Debug Replay
             try {

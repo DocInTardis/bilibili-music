@@ -7,6 +7,7 @@ import com.example.bilibilimusic.dto.MusicUnit;
 import com.example.bilibilimusic.dto.VideoInfo;
 import com.example.bilibilimusic.service.CacheService;
 import com.example.bilibilimusic.service.UserPreferenceService;
+import com.example.bilibilimusic.service.telemetry.DecisionTelemetryService;
 import com.example.bilibilimusic.skill.VideoRelevanceScorer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -26,6 +27,7 @@ public class RelevanceDecisionNode implements AgentNode {
     private final VideoRelevanceScorer scorer;
     private final UserPreferenceService preferenceService;
     private final CacheService cacheService;
+    private final DecisionTelemetryService decisionTelemetryService;
 
     @Override
     public NodeResult execute(PlaylistContext state) {
@@ -75,6 +77,17 @@ public class RelevanceDecisionNode implements AgentNode {
         log.debug("[RelDecision] {} - 评分: {}, 结果: {}", 
             video.getTitle(), score, accepted ? "接受" : "拒绝");
 
+        decisionTelemetryService.recordDecision(
+            conversationId,
+            "video",
+            video.getBvid(),
+            DecisionTelemetryService.Source.SCORE,
+            accepted,
+            score,
+            "SCORING",
+            null
+        );
+
         if (accepted) {
             // 从数量估算中读取估算结果
             Map<String, Object> quantity = state.getLastQuantityEstimation();
@@ -111,6 +124,6 @@ public class RelevanceDecisionNode implements AgentNode {
             state.getTrashVideos().add(video);
         }
 
-        return NodeResult.success(accepted ? "video_accepted" : "progress_update");
+        return NodeResult.success();
     }
 }

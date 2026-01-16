@@ -2,10 +2,10 @@ package com.example.bilibilimusic.agent.graph.nodes;
 
 import com.example.bilibilimusic.agent.graph.AgentNode;
 import com.example.bilibilimusic.context.PlaylistContext;
+import com.example.bilibilimusic.service.websocket.WsTopicPublisher;
 import com.example.bilibilimusic.skill.SummarySkill;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -18,7 +18,7 @@ import java.util.Map;
 public class GenerateSummaryNode implements AgentNode {
     
     private final SummarySkill summarySkill;
-    private final SimpMessagingTemplate messagingTemplate;
+    private final WsTopicPublisher wsTopicPublisher;
     
     @Override
     public NodeResult execute(PlaylistContext state) {
@@ -60,6 +60,6 @@ public class GenerateSummaryNode implements AgentNode {
             .content("✨ 播放列表生成完成")
             .payload(payload)
             .build();
-        messagingTemplate.convertAndSend("/topic/messages", msg);
+        wsTopicPublisher.send("/topic/messages", msg);
     }
 }

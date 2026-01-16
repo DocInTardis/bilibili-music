@@ -2,6 +2,8 @@ package com.example.bilibilimusic.service;
 
 import com.example.bilibilimusic.entity.UserBehaviorEvent;
 import com.example.bilibilimusic.entity.UserPreference;
+import com.example.bilibilimusic.mapper.UserBehaviorEventMapper;
+import com.example.bilibilimusic.service.telemetry.DecisionTelemetryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -27,6 +29,9 @@ public class UserBehaviorFeedbackService {
     private final UserPreferenceService preferenceService;
     private final PreferenceDecayService decayService;
     private final CacheService cacheService;
+    private final DecisionTelemetryService decisionTelemetryService;
+    private final UserBehaviorEventMapper userBehaviorEventMapper;
+    private final DatabaseService databaseService;
         
     // 冷启动阈值：交互次数少于此值时，启用探索策略
     private static final int COLD_START_THRESHOLD = 10;
@@ -55,12 +60,32 @@ public class UserBehaviorFeedbackService {
 
         log.info("[Behavior] 记录行为: {} {} (强度: {})", 
             event.getBehaviorType(), event.getTargetId(), event.getIntensity());
+
+        // 先持久化事件（applied 字段会在下方更新）
+        try {
+            if (event.getOccurredAt() == null) {
+                event.setOccurredAt(LocalDateTime.now());
+            }
+            if (event.getApplied() == null) {
+                event.setApplied(false);
+            }
+            userBehaviorEventMapper.insert(event);
+        } catch (Exception e) {
+            log.warn("[Behavior] 行为事件落库失败（不影响在线学习）: {}", e.getMessage());
+        }
         
         // 计算权重变化
         double weightDelta = calculateWeightDelta(event);
                 
         // 更新偏好权重
         updatePreference(event, weightDelta);
+
+        // 在线学习增强：如果是视频行为，派生更新艺人/关键词偏好
+        try {
+            enrichDerivedPreferences(event, weightDelta);
+        } catch (Exception e) {
+            log.debug("[Behavior] 派生偏好更新失败（忽略）: {}", e.getMessage());
+        }
         
         // 更新序列特征（例如连续负向行为计数）
         updateSequentialFeatures(event);
@@ -70,6 +95,86 @@ public class UserBehaviorFeedbackService {
                     
         // 标记为已应用
         event.setApplied(true);
+        try {
+            if (event.getId() != null) {
+                userBehaviorEventMapper.updateById(event);
+            }
+        } catch (Exception e) {
+            log.debug("[Behavior] 更新 applied 标记失败（忽略）: {}", e.getMessage());
+        }
+
+        // 在线评估：将用户反馈回流到决策准确率统计
+        decisionTelemetryService.recordFeedback(event);
+    }
+
+    private void enrichDerivedPreferences(UserBehaviorEvent event, double weightDelta) {
+        if (event.getConversationId() == null || event.getTargetType() == null || event.getTargetId() == null) {
+            return;
+        }
+        if (!"video".equalsIgnoreCase(event.getTargetType())) {
+            return;
+        }
+        String bvid = event.getTargetId();
+        com.example.bilibilimusic.entity.Video video = databaseService.findVideoByBvid(bvid);
+        if (video == null) {
+            return;
+        }
+
+        // 将视频反馈映射到艺人偏好（使用较小的增量，避免过拟合单条视频）
+        if (video.getTitle() != null && !video.getTitle().isBlank()) {
+            // 如果标题中包含明确“合集/歌单”，降低对 artist 的更新强度
+            boolean playlistish = video.getTitle().contains("合集") || video.getTitle().contains("歌单") || video.getTitle().toLowerCase().contains("playlist");
+            int artistDelta = (int) Math.round((playlistish ? 0.3 : 0.6) * weightDelta);
+            if (artistDelta != 0 && video.getTitle() != null) {
+                String artist = extractArtist(video.getTitle());
+                if (artist != null) {
+                    preferenceService.adjustPreference(event.getConversationId(), "artist", artist, artistDelta);
+                }
+            }
+        }
+
+        // 使用 tags/description 的 keywords 做轻量派生
+        String tags = video.getTags();
+        if (tags != null && !tags.isBlank()) {
+            String[] parts = tags.split("[,，;；\\s]+");
+            int perKeyword = (int) Math.round(0.2 * weightDelta);
+            int count = 0;
+            for (String p : parts) {
+                String kw = p != null ? p.trim() : null;
+                if (kw == null || kw.isBlank()) {
+                    continue;
+                }
+                if (count++ >= 5) {
+                    break;
+                }
+                if (perKeyword != 0) {
+                    preferenceService.adjustPreference(event.getConversationId(), "keyword", kw.toLowerCase(), perKeyword);
+                }
+            }
+        }
+    }
+
+    private String extractArtist(String title) {
+        if (title == null || title.isBlank()) {
+            return null;
+        }
+        // 简单启发式：取“《歌名》| 艺人”或“艺人 - 歌名”这类常见格式
+        String t = title.trim();
+        int pipe = t.indexOf('|');
+        if (pipe >= 0 && pipe + 1 < t.length()) {
+            String right = t.substring(pipe + 1).trim();
+            if (!right.isBlank() && right.length() <= 32) {
+                return right;
+            }
+        }
+        int dash = t.indexOf('-');
+        if (dash > 0) {
+            String left = t.substring(0, dash).trim();
+            if (!left.isBlank() && left.length() <= 32) {
+                return left;
+            }
+        }
+        return null;
     }
         
     /**

@@ -3,9 +3,9 @@ package com.example.bilibilimusic.agent.graph.nodes;
 import com.example.bilibilimusic.agent.graph.AgentNode;
 import com.example.bilibilimusic.context.PlaylistContext;
 import com.example.bilibilimusic.dto.VideoInfo;
+import com.example.bilibilimusic.service.websocket.WsTopicPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -19,7 +19,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class ProgressUpdateNode implements AgentNode {
 
-    private final SimpMessagingTemplate messagingTemplate;
+    private final WsTopicPublisher wsTopicPublisher;
 
     @Override
     public NodeResult execute(PlaylistContext state) {
@@ -64,7 +64,7 @@ public class ProgressUpdateNode implements AgentNode {
             .content("已评估一个视频")
             .payload(payload)
             .build();
-        messagingTemplate.convertAndSend("/topic/messages", msg);
+        wsTopicPublisher.send("/topic/messages", msg);
 
         return NodeResult.success("loop_control");
     }

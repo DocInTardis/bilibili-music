@@ -3,14 +3,17 @@ package com.example.bilibilimusic.agent.graph.nodes;
 import com.example.bilibilimusic.agent.graph.AgentNode;
 import com.example.bilibilimusic.context.PlaylistContext;
 import com.example.bilibilimusic.dto.VideoInfo;
+import com.example.bilibilimusic.service.websocket.WsTopicPublisher;
 import com.example.bilibilimusic.skill.CurationSkill;
 import com.example.bilibilimusic.skill.VideoRelevanceScorer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.IntStream;
 
 /**
  * 视频判断节点（循环节点）
@@ -27,7 +30,7 @@ public class JudgeVideoNode implements AgentNode {
     
     private final CurationSkill curationSkill;
     private final VideoRelevanceScorer relevanceScorer;
-    private final SimpMessagingTemplate messagingTemplate;
+    private final WsTopicPublisher wsTopicPublisher;
     
     @Override
     public NodeResult execute(PlaylistContext state) {
@@ -38,57 +41,73 @@ public class JudgeVideoNode implements AgentNode {
             state.setShouldContinue(false);
             return NodeResult.success("continue_check");
         }
-        
-        VideoInfo video = state.getSearchResults().get(index);
-        log.info("[JudgeNode] 正在判断第 {} 个视频: {}", index + 1, video.getTitle());
-        
-        // 调用CurationSkill判断
-        VideoRelevanceScorer.ScoringResult scoringResult = 
-            relevanceScorer.scoreVideo(video, state.getIntent());
-        
-        boolean accepted = false;
-        
-        if (scoringResult.isReject()) {
-            // 负分直接拒绝
-            log.debug("[JudgeNode] 负关键词拒绝: {}", video.getTitle());
-            state.getRejectedVideos().add(video);
-        } else if (scoringResult.getScore() >= curationSkill.getLlmThresholdHigh()) {
-            // 高分直接接受
-            log.info("[JudgeNode] 高分接受({}分): {}", scoringResult.getScore(), video.getTitle());
-            state.getSelectedVideos().add(video);
-            state.setAccumulatedCount(state.getAccumulatedCount() + 1);
-            accepted = true;
-            pushVideoAccepted(state, video, scoringResult.getScore(), "高分直接接受");
-        } else if (scoringResult.getScore() <= curationSkill.getLlmThresholdLow()) {
-            // 低分直接拒绝
-            log.debug("[JudgeNode] 低分拒绝({}分): {}", scoringResult.getScore(), video.getTitle());
-            state.getRejectedVideos().add(video);
-        } else {
-            // 边界情况，调用LLM
-            log.debug("[JudgeNode] 边界情况({}分)，调用LLM: {}", scoringResult.getScore(), video.getTitle());
+
+        int total = state.getSearchResults().size();
+        int targetCount = state.getIntent() != null ? state.getIntent().getTargetCount() : 0;
+
+        int batchSize = Integer.parseInt(System.getProperty("agent.judge.batch-size", "8"));
+        int endExclusive = Math.min(total, index + Math.max(1, batchSize));
+
+        List<VideoInfo> batch = new ArrayList<>(endExclusive - index);
+        for (int i = index; i < endExclusive; i++) {
+            batch.add(state.getSearchResults().get(i));
+        }
+
+        log.info("[JudgeNode] 并行预评分: index={}..{} / total={}", index + 1, endExclusive, total);
+
+        List<VideoRelevanceScorer.ScoringResult> scoringResults = IntStream.range(0, batch.size())
+            .parallel()
+            .mapToObj(i -> relevanceScorer.scoreVideo(batch.get(i), state.getIntent()))
+            .toList();
+
+        int processed = 0;
+        for (int i = 0; i < batch.size(); i++) {
+            VideoInfo video = batch.get(i);
+            VideoRelevanceScorer.ScoringResult scoringResult = scoringResults.get(i);
+            processed++;
+
+            // 如果已经达到目标，直接停止（减少不必要的计算与 LLM 调用）
+            if (targetCount > 0 && state.getAccumulatedCount() >= targetCount) {
+                state.setTargetReached(true);
+                state.setShouldContinue(false);
+                break;
+            }
+
+            if (scoringResult.isReject()) {
+                state.getRejectedVideos().add(video);
+                continue;
+            }
+            if (scoringResult.getScore() >= curationSkill.getLlmThresholdHigh()) {
+                state.getSelectedVideos().add(video);
+                state.setAccumulatedCount(state.getAccumulatedCount() + 1);
+                pushVideoAccepted(state, video, scoringResult.getScore(), "高分直接接受");
+                continue;
+            }
+            if (scoringResult.getScore() <= curationSkill.getLlmThresholdLow()) {
+                state.getRejectedVideos().add(video);
+                continue;
+            }
+
+            // 边界情况：仅在确实还需要补足目标数量时才调用 LLM
             boolean llmAccept = curationSkill.judgeVideoWithLLM(video, state.getIntent());
-            
             if (llmAccept) {
                 state.getSelectedVideos().add(video);
                 state.setAccumulatedCount(state.getAccumulatedCount() + 1);
-                accepted = true;
                 pushVideoAccepted(state, video, scoringResult.getScore(), "LLM边界判断接受");
             } else {
                 state.getRejectedVideos().add(video);
             }
         }
-        
-        // 更新索引
-        state.setCurrentVideoIndex(index + 1);
-        
-        // 检查是否达到目标
-        if (state.getAccumulatedCount() >= state.getIntent().getTargetCount()) {
-            log.info("[JudgeNode] 已达到目标数量: {}/{}", 
-                state.getAccumulatedCount(), state.getIntent().getTargetCount());
+
+        state.setCurrentVideoIndex(index + processed);
+        if (state.getCurrentVideoIndex() >= total) {
+            state.setShouldContinue(false);
+        }
+        if (targetCount > 0 && state.getAccumulatedCount() >= targetCount) {
             state.setTargetReached(true);
             state.setShouldContinue(false);
         }
-        
+
         return NodeResult.success("continue_check");
     }
     
@@ -109,6 +128,6 @@ public class JudgeVideoNode implements AgentNode {
             .content(String.format("✅ 接受: %s", video.getTitle()))
             .payload(payload)
             .build();
-        messagingTemplate.convertAndSend("/topic/messages", msg);
+        wsTopicPublisher.send("/topic/messages", msg);
     }
 }

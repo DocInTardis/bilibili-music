@@ -74,6 +74,9 @@ bilibili:
 - `REDIS_HOST` / `REDIS_PORT` / `REDIS_DB` / `REDIS_PASSWORD`
 - `OLLAMA_BASE_URL` / `OLLAMA_MODEL`
 - `WS_ALLOWED_ORIGIN_PATTERNS`（生产环境请配置为你的站点域名，避免使用 `*`）
+- `WS_CLUSTER_ENABLED` / `WS_CLUSTER_CHANNEL`（多实例部署时启用 Redis Pub/Sub 广播）
+- `AUDIO_FP_ENABLED` / `AUDIO_FP_BASE_URL` / `AUDIO_FP_API_KEY`（可选：音频指纹识别）
+- `OLLAMA_EMBEDDINGS_ENABLED` / `OLLAMA_EMBED_MODEL`（可选：向量语义检索/打分）
 
 ## 技术栈
 

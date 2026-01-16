@@ -1,0 +1,58 @@
+graphVersion: playlist-agent-v1
+start: intent_understanding
+nodes:
+  - id: intent_understanding
+    type: intent_understanding
+  - id: keyword_extraction
+    type: keyword_extraction
+  - id: video_retrieval
+    type: video_retrieval
+  - id: pre_sort_videos
+    type: pre_sort_videos
+  - id: content_analysis
+    type: content_analysis
+  - id: quantity_estimation
+    type: quantity_estimation
+  - id: relevance_decision
+    type: relevance_decision
+  - id: video_accepted
+    type: video_accepted
+  - id: progress_update
+    type: progress_update
+  - id: loop_control
+    type: loop_control
+  - id: target_evaluation
+    type: target_evaluation
+  - id: generate_summary
+    type: generate_summary
+edges:
+  - from: intent_understanding
+    type: fixed
+    to: keyword_extraction
+  - from: keyword_extraction
+    type: fixed
+    to: video_retrieval
+  - from: video_retrieval
+    type: after_retrieval
+  - from: pre_sort_videos
+    type: fixed
+    to: content_analysis
+  - from: content_analysis
+    type: content_analysis_gate
+  - from: quantity_estimation
+    type: fixed
+    to: relevance_decision
+  - from: relevance_decision
+    type: decision_accepted_gate
+  - from: video_accepted
+    type: fixed
+    to: progress_update
+  - from: progress_update
+    type: fixed
+    to: loop_control
+  - from: loop_control
+    type: continue_judge
+  - from: target_evaluation
+    type: fixed
+    to: generate_summary
+

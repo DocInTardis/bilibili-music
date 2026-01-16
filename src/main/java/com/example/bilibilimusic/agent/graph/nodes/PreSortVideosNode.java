@@ -4,8 +4,10 @@ import com.example.bilibilimusic.agent.graph.AgentNode;
 import com.example.bilibilimusic.context.PlaylistContext;
 import com.example.bilibilimusic.context.UserIntent;
 import com.example.bilibilimusic.dto.VideoInfo;
+import com.example.bilibilimusic.config.AgentPrefetchConfig;
 import com.example.bilibilimusic.service.CacheService;
 import com.example.bilibilimusic.service.UserPreferenceService;
+import com.example.bilibilimusic.skill.VideoRelevanceScorer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -31,6 +33,8 @@ public class PreSortVideosNode implements AgentNode {
     
     private final UserPreferenceService preferenceService;
     private final CacheService cacheService;
+    private final VideoRelevanceScorer relevanceScorer;
+    private final AgentPrefetchConfig agentPrefetchConfig;
 
     @Override
     public NodeResult execute(PlaylistContext state) {
@@ -94,8 +98,41 @@ public class PreSortVideosNode implements AgentNode {
         state.setAccumulatedCount(0);
         state.setTargetReached(false);
         state.setShouldContinue(true);
+
+        // 并行预热：提前把“相关性评分结果”写入缓存，降低后续逐个判断的总耗时
+        prefetchScoringCache(state, artistPrefs, keywordPrefs, sorted);
         
         return NodeResult.success("content_analysis");
+    }
+
+    private void prefetchScoringCache(PlaylistContext state,
+                                      Map<String, Integer> artistPrefs,
+                                      Map<String, Integer> keywordPrefs,
+                                      List<VideoInfo> sortedVideos) {
+        boolean enabled = agentPrefetchConfig != null && agentPrefetchConfig.isScoringEnabled();
+        int maxVideos = agentPrefetchConfig != null ? agentPrefetchConfig.getScoringMaxVideos() : 0;
+        if (!enabled || sortedVideos == null || sortedVideos.isEmpty() || maxVideos <= 0) {
+            return;
+        }
+
+        int limit = Math.min(maxVideos, sortedVideos.size());
+        List<VideoInfo> slice = sortedVideos.subList(0, limit);
+        long start = System.currentTimeMillis();
+        try {
+            slice.parallelStream().forEach(v -> {
+                if (v == null || v.getBvid() == null || v.getBvid().isBlank()) {
+                    return;
+                }
+                VideoRelevanceScorer.ScoringResult scoringResult =
+                    relevanceScorer.scoreVideo(v, state.getIntent(), artistPrefs, keywordPrefs, state.getConversationId());
+                cacheService.cacheLLMJudgement(v.getBvid(), state.getIntent(), scoringResult);
+            });
+        } catch (Exception e) {
+            log.debug("[PreSort] 评分预热失败（忽略，不影响主流程）: {}", e.getMessage());
+        } finally {
+            long cost = System.currentTimeMillis() - start;
+            log.info("[PreSort] 评分缓存预热完成: videos={}, cost={}ms", limit, cost);
+        }
     }
 
     private boolean isPlaylistStyle(VideoInfo video) {

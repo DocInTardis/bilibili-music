@@ -3,10 +3,10 @@ package com.example.bilibilimusic.agent.graph.nodes;
 import com.example.bilibilimusic.agent.graph.AgentNode;
 import com.example.bilibilimusic.context.PlaylistContext;
 import com.example.bilibilimusic.service.CacheService;
+import com.example.bilibilimusic.service.websocket.WsTopicPublisher;
 import com.example.bilibilimusic.skill.KeywordExtractionSkill;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 import java.util.HashMap;
 import java.util.List;
@@ -20,7 +20,7 @@ import java.util.Map;
 public class KeywordExtractionNode implements AgentNode {
     
     private final KeywordExtractionSkill keywordExtractionSkill;
-    private final SimpMessagingTemplate messagingTemplate;
+    private final WsTopicPublisher wsTopicPublisher;
     private final CacheService cacheService;
     
     @Override
@@ -66,6 +66,6 @@ public class KeywordExtractionNode implements AgentNode {
             .content("💬 已将需求拆解为关键词")
             .payload(payload)
             .build();
-        messagingTemplate.convertAndSend("/topic/messages", msg);
+        wsTopicPublisher.send("/topic/messages", msg);
     }
 }

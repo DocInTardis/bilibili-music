@@ -13,6 +13,7 @@ import com.example.bilibilimusic.service.DatabaseService;
 import com.example.bilibilimusic.service.UserPreferenceService;
 import com.example.bilibilimusic.service.AudioFingerprintService;
 import com.example.bilibilimusic.skill.*;
+import com.example.bilibilimusic.agent.graph.assembly.GraphAssemblyService;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -45,6 +46,7 @@ public class PlaylistAgentGraphBuilder {
     private final PlaylistAgentPolicySelector policySelector;
     private final AgentExecutionConfig agentExecutionConfig;
     private final AudioFingerprintService audioFingerprintService;
+    private final GraphAssemblyService graphAssemblyService;
     
     /**
      * 构建 PlaylistAgent 状态图（根据请求选择策略）
@@ -61,7 +63,12 @@ public class PlaylistAgentGraphBuilder {
         graph.setMaxNodeRetries(agentExecutionConfig.getDefaultMaxNodeRetries(policyName));
         graph.setNodeRetryOverrides(agentExecutionConfig.getNodeRetryOverrides(policyName));
         
-        policy.configure(graph, this);
+        String resource = policy.getGraphDefinitionResource();
+        if (resource != null && !resource.isBlank()) {
+            graphAssemblyService.assemble(graph, resource);
+        } else {
+            policy.configure(graph, this);
+        }
                 
         return graph;
     }

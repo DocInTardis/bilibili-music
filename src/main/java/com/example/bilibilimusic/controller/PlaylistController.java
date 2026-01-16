@@ -15,7 +15,10 @@ import com.example.bilibilimusic.context.PlaylistContext;
 import com.example.bilibilimusic.service.DatabaseService;
 import com.example.bilibilimusic.service.ContextPersistenceService;
 import com.example.bilibilimusic.service.ObservabilityService;
+import com.example.bilibilimusic.service.PromptVersionService;
 import com.example.bilibilimusic.service.UserBehaviorFeedbackService;
+import com.example.bilibilimusic.service.telemetry.DecisionTelemetryService;
+import com.example.bilibilimusic.service.telemetry.LlmTelemetryService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -37,6 +40,9 @@ public class PlaylistController {
     private final ContextPersistenceService contextPersistenceService;
     private final ObservabilityService observabilityService;
     private final UserBehaviorFeedbackService userBehaviorFeedbackService;
+    private final PromptVersionService promptVersionService;
+    private final LlmTelemetryService llmTelemetryService;
+    private final DecisionTelemetryService decisionTelemetryService;
 
     @PostMapping
     public ResponseEntity<PlaylistResponse> generate(@Valid @RequestBody PlaylistRequest request) {
@@ -136,6 +142,30 @@ public class PlaylistController {
     @GetMapping("/observability/error-stats")
     public ResponseEntity<ErrorStats> getErrorStats(@RequestParam(defaultValue = "24") int hours) {
         return ResponseEntity.ok(observabilityService.getErrorStats(hours));
+    }
+
+    /**
+     * 当前 Prompt 版本信息（用于可观测与 A/B 对比）
+     */
+    @GetMapping("/observability/prompt-versions")
+    public ResponseEntity<java.util.Map<String, String>> getPromptVersions() {
+        return ResponseEntity.ok(promptVersionService.getAllVersions());
+    }
+
+    /**
+     * LLM 调用统计（按 nodeName + version 聚合）
+     */
+    @GetMapping("/observability/llm-stats")
+    public ResponseEntity<LlmTelemetryService.Snapshot> getLlmStats() {
+        return ResponseEntity.ok(llmTelemetryService.snapshot());
+    }
+
+    /**
+     * 决策统计（接受/拒绝、以及用户反馈回流后的准确率）
+     */
+    @GetMapping("/observability/decision-stats")
+    public ResponseEntity<DecisionTelemetryService.Snapshot> getDecisionStats() {
+        return ResponseEntity.ok(decisionTelemetryService.snapshot());
     }
 
     /**

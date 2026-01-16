@@ -30,4 +30,12 @@ public interface PlaylistAgentPolicy {
     default Set<String> getSupportedModes() {
         return Collections.emptySet();
     }
+
+    /**
+     * 以 YAML/JSON 的形式提供图定义（推荐）。
+     * 返回 null 表示仍沿用 configure 中的代码级装配。
+     */
+    default String getGraphDefinitionResource() {
+        return null;
+    }
 }

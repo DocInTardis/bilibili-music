@@ -3,6 +3,7 @@ package com.example.bilibilimusic.service;
 import com.example.bilibilimusic.dto.VideoInfo;
 import com.example.bilibilimusic.service.CacheService;
 import com.example.bilibilimusic.service.PromptVersionService;
+import com.example.bilibilimusic.service.telemetry.LlmTelemetryService;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
@@ -26,6 +27,7 @@ public class OllamaService {
     private final WebClient ollamaWebClient;
     private final PromptVersionService promptVersionService;
     private final CacheService cacheService;
+    private final LlmTelemetryService llmTelemetryService;
 
     @Value("${ollama.model}")
     private String model;
@@ -52,12 +54,23 @@ public class OllamaService {
             String cached = cacheService.getCachedPromptResult(cacheKey);
             if (cached != null) {
                 log.debug("[OllamaService] 命中 Prompt 结果缓存: node={}, version={}", nodeName, version);
+                llmTelemetryService.recordChatCall(
+                    nodeName,
+                    version,
+                    model,
+                    true,
+                    true,
+                    0L,
+                    estimateTokens(systemPrompt) + estimateTokens(userPrompt),
+                    estimateTokens(cached)
+                );
                 return cached;
             }
         }
 
         long start = System.currentTimeMillis();
         String content = null;
+        boolean success = false;
         try {
             Map<String, Object> payload = new HashMap<>();
             payload.put("model", model);
@@ -84,6 +97,7 @@ public class OllamaService {
                 Map<String, Object> message = (Map<String, Object>) response.get("message");
                 content = (String) message.get("content");
             }
+            success = content != null && !content.isBlank();
         } catch (Exception e) {
             log.error("[OllamaService] 调用 LLM 失败: node={}", nodeName, e);
         } finally {
@@ -96,6 +110,17 @@ public class OllamaService {
             double estimatedCost = totalTokens / 1000.0 * costPerThousand;
             log.info("[LLM] node={} version={} tokens(p/c/t)={}/{}/{} duration={}ms cost≈{}",
                 nodeName, version, promptTokens, completionTokens, totalTokens, duration, estimatedCost);
+
+            llmTelemetryService.recordChatCall(
+                nodeName,
+                version,
+                model,
+                false,
+                success,
+                duration,
+                promptTokens,
+                completionTokens
+            );
         }
 
         if (enableCache && cacheKey != null && content != null && !content.isBlank()) {
