@@ -4,6 +4,7 @@ import com.example.bilibilimusic.agent.PlaylistAgent;
 import com.example.bilibilimusic.dto.ChatMessage;
 import com.example.bilibilimusic.dto.PlaylistRequest;
 import com.example.bilibilimusic.dto.PlaylistResponse;
+import com.example.bilibilimusic.service.job.PlaylistJobQueueService;
 import com.example.bilibilimusic.service.websocket.WsTopicPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,6 +19,7 @@ public class ChatWebSocketController {
 
     private final PlaylistAgent playlistAgent;
     private final WsTopicPublisher wsTopicPublisher;
+    private final PlaylistJobQueueService jobQueueService;
 
     @MessageMapping("/chat")
     @SendTo("/topic/messages")
@@ -30,6 +32,15 @@ public class ChatWebSocketController {
                 PlaylistRequest request = new PlaylistRequest();
                 request.setQuery(message.getContent());
                 request.setLimit(message.getLimit() != null ? message.getLimit() : 10);
+
+                if (jobQueueService != null && jobQueueService.isEnabled()) {
+                    String jobId = jobQueueService.submit(request);
+                    return ChatMessage.builder()
+                        .type("accepted")
+                        .content("任务已进入队列")
+                        .payload(java.util.Map.of("jobId", jobId))
+                        .build();
+                }
 
                 // 调用 Agent，传入状态回调
                 PlaylistResponse response = playlistAgent.execute(request, status -> {

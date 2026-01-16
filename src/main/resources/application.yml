@@ -45,6 +45,10 @@ ollama:
 bilibili:
   search-url-template: "https://search.bilibili.com/all?keyword={query}&from_source=webtop_search&spm_id_from=333.1007&search_source=3"
   headless: ${BILIBILI_HEADLESS:false}  # 设置为 false 可以显示浏览器窗口，便于调试和观察
+  search-timeout-ms: ${BILIBILI_SEARCH_TIMEOUT_MS:25000}
+  navigate-timeout-ms: ${BILIBILI_NAVIGATE_TIMEOUT_MS:15000}
+  detail-fetch-timeout-ms: ${BILIBILI_DETAIL_FETCH_TIMEOUT_MS:6000}
+  detail-fetch-concurrency: ${BILIBILI_DETAIL_FETCH_CONCURRENCY:8}
 
 # 安全相关的默认配置（建议按环境覆盖）
 app:
@@ -60,12 +64,85 @@ audio:
     enabled: ${AUDIO_FP_ENABLED:false}
     base-url: ${AUDIO_FP_BASE_URL:}
     api-key: ${AUDIO_FP_API_KEY:}
+    timeout-ms: ${AUDIO_FP_TIMEOUT_MS:4000}
+
+http:
+  client:
+    connect-timeout-ms: ${HTTP_CONNECT_TIMEOUT_MS:2000}
+    response-timeout-ms: ${HTTP_RESPONSE_TIMEOUT_MS:8000}
 
 agent:
   prefetch:
     scoring:
       enabled: ${AGENT_PREFETCH_SCORING_ENABLED:true}
       max-videos: ${AGENT_PREFETCH_SCORING_MAX_VIDEOS:50}
+
+job:
+  queue:
+    enabled: ${JOB_QUEUE_ENABLED:true}
+    poll-interval-ms: ${JOB_QUEUE_POLL_INTERVAL_MS:250}
+    batch-size: ${JOB_QUEUE_BATCH_SIZE:4}
+    max-attempts: ${JOB_QUEUE_MAX_ATTEMPTS:3}
+    processing-timeout-ms: ${JOB_QUEUE_PROCESSING_TIMEOUT_MS:600000}
+    dedup-ttl-ms: ${JOB_QUEUE_DEDUP_TTL_MS:86400000}
+    worker:
+      concurrency: ${JOB_QUEUE_WORKER_CONCURRENCY:2}
+
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 20
+        minimumNumberOfCalls: 10
+        failureRateThreshold: 50
+        permittedNumberOfCallsInHalfOpenState: 5
+        waitDurationInOpenState: 20s
+    instances:
+      ollama:
+        baseConfig: default
+      bilibiliSearch:
+        baseConfig: default
+      audioFingerprint:
+        baseConfig: default
+  retry:
+    instances:
+      ollama:
+        maxAttempts: 2
+        waitDuration: 200ms
+        enableExponentialBackoff: true
+        exponentialBackoffMultiplier: 2
+      bilibiliSearch:
+        maxAttempts: 2
+        waitDuration: 300ms
+      audioFingerprint:
+        maxAttempts: 2
+        waitDuration: 250ms
+  ratelimiter:
+    instances:
+      ollama:
+        limitForPeriod: 10
+        limitRefreshPeriod: 1s
+        timeoutDuration: 0
+      bilibiliSearch:
+        limitForPeriod: 3
+        limitRefreshPeriod: 1s
+        timeoutDuration: 0
+      audioFingerprint:
+        limitForPeriod: 5
+        limitRefreshPeriod: 1s
+        timeoutDuration: 0
+  bulkhead:
+    instances:
+      ollama:
+        maxConcurrentCalls: 4
+        maxWaitDuration: 0
+      bilibiliSearch:
+        maxConcurrentCalls: 2
+        maxWaitDuration: 0
+      audioFingerprint:
+        maxConcurrentCalls: 4
+        maxWaitDuration: 0
 
 logging:
   level:

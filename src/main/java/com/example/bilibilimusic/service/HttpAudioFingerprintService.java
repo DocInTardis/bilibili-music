@@ -2,6 +2,10 @@ package com.example.bilibilimusic.service;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import io.github.resilience4j.bulkhead.annotation.Bulkhead;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
+import io.github.resilience4j.retry.annotation.Retry;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -36,6 +40,10 @@ public class HttpAudioFingerprintService implements AudioFingerprintService {
     private long timeoutMs;
 
     @Override
+    @CircuitBreaker(name = "audioFingerprint", fallbackMethod = "estimateTrackCountFallback")
+    @Retry(name = "audioFingerprint")
+    @RateLimiter(name = "audioFingerprint")
+    @Bulkhead(name = "audioFingerprint")
     public Integer estimateTrackCount(String videoUrl) {
         if (videoUrl == null || videoUrl.isBlank()) {
             return null;
@@ -44,20 +52,20 @@ public class HttpAudioFingerprintService implements AudioFingerprintService {
             return null;
         }
 
+        WebClient client = webClientBuilder.baseUrl(baseUrl).build();
+        Request payload = new Request();
+        payload.setVideoUrl(videoUrl);
+        payload.setPlatform("bilibili");
+
+        WebClient.RequestBodySpec req = client.post()
+            .uri("/estimate")
+            .contentType(MediaType.APPLICATION_JSON);
+
+        if (apiKey != null && !apiKey.isBlank()) {
+            req = req.header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey);
+        }
+
         try {
-            WebClient client = webClientBuilder.baseUrl(baseUrl).build();
-            Request payload = new Request();
-            payload.setVideoUrl(videoUrl);
-            payload.setPlatform("bilibili");
-
-            WebClient.RequestBodySpec req = client.post()
-                .uri("/estimate")
-                .contentType(MediaType.APPLICATION_JSON);
-
-            if (apiKey != null && !apiKey.isBlank()) {
-                req = req.header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey);
-            }
-
             Response resp = req
                 .bodyValue(payload)
                 .retrieve()
@@ -73,9 +81,14 @@ public class HttpAudioFingerprintService implements AudioFingerprintService {
             }
             return trackCount;
         } catch (Exception e) {
-            log.debug("[AudioFP] estimateTrackCount failed: {}", e.getMessage());
-            return null;
+            throw new RuntimeException("audio fingerprint request failed", e);
         }
+    }
+
+    @SuppressWarnings("unused")
+    private Integer estimateTrackCountFallback(String videoUrl, Throwable t) {
+        log.debug("[AudioFP] fallback: {}", t != null ? t.getMessage() : "null");
+        return null;
     }
 
     @Data
@@ -91,4 +104,3 @@ public class HttpAudioFingerprintService implements AudioFingerprintService {
         private Integer trackCount;
     }
 }
-

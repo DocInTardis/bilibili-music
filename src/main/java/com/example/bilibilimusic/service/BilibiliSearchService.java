@@ -2,6 +2,10 @@ package com.example.bilibilimusic.service;
 
 import com.example.bilibilimusic.dto.VideoInfo;
 import com.microsoft.playwright.*;
+import io.github.resilience4j.bulkhead.annotation.Bulkhead;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
+import io.github.resilience4j.retry.annotation.Retry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -23,6 +27,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.CompletableFuture;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
+import java.time.Duration;
 
 @Service
 @RequiredArgsConstructor
@@ -40,17 +45,30 @@ public class BilibiliSearchService {
     
     @Value("${bilibili.detail-fetch-concurrency:8}")
     private int detailFetchConcurrency;
+
+    @Value("${bilibili.search-timeout-ms:25000}")
+    private long searchTimeoutMs;
+
+    @Value("${bilibili.navigate-timeout-ms:15000}")
+    private long navigateTimeoutMs;
+
+    @Value("${bilibili.detail-fetch-timeout-ms:6000}")
+    private long detailFetchTimeoutMs;
     
     /**
      * 用于抓取视频详情页（meta keywords / description）
      */
-    private final HttpClient httpClient = HttpClient.newHttpClient();
+    private HttpClient httpClient;
     
     private ExecutorService detailExecutor;
     
     @PostConstruct
     public void initDetailExecutor() {
         detailExecutor = Executors.newFixedThreadPool(detailFetchConcurrency);
+        httpClient = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofMillis(Math.max(1000L, detailFetchTimeoutMs)))
+            .followRedirects(HttpClient.Redirect.NORMAL)
+            .build();
     }
     
     @PreDestroy
@@ -92,6 +110,10 @@ public class BilibiliSearchService {
         return result.get(0);
     }
     
+    @CircuitBreaker(name = "bilibiliSearch", fallbackMethod = "searchFallback")
+    @Retry(name = "bilibiliSearch")
+    @RateLimiter(name = "bilibiliSearch")
+    @Bulkhead(name = "bilibiliSearch")
     public List<VideoInfo> search(String query, int limit) {
         String encoded = URLEncoder.encode(query, StandardCharsets.UTF_8);
         String url = searchUrlTemplate.replace("{query}", encoded);
@@ -106,10 +128,11 @@ public class BilibiliSearchService {
             );
             Page page = browser.newPage();
             log.info("打开 B 站搜索页面: {}", url);
-            page.navigate(url);
+            page.setDefaultTimeout(searchTimeoutMs);
+            page.navigate(url, new Page.NavigateOptions().setTimeout(navigateTimeoutMs));
 
             // 等待页面加载
-            page.waitForTimeout(5000);
+            page.waitForTimeout(Math.min(5000, searchTimeoutMs));
 
             // 尝试多种选择器策略
             List<ElementHandle> cards = page.querySelectorAll("div.bili-video-card__wrap");
@@ -222,10 +245,16 @@ public class BilibiliSearchService {
                         
             log.info("最终解析到 {} 个视频", result.size());
         } catch (Exception e) {
-            log.error("Playwright 搜索 B 站失败", e);
+            throw new RuntimeException("bilibili search failed", e);
         }
 
         return result;
+    }
+
+    @SuppressWarnings("unused")
+    private List<VideoInfo> searchFallback(String query, int limit, Throwable t) {
+        log.warn("[BilibiliSearch] fallback: query={}, limit={}, error={}", query, limit, t != null ? t.getMessage() : "null");
+        return java.util.Collections.emptyList();
     }
     
     /**
@@ -246,6 +275,7 @@ public class BilibiliSearchService {
                         .uri(URI.create(video.getUrl()))
                         .GET()
                         .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                        .timeout(Duration.ofMillis(Math.max(1000L, detailFetchTimeoutMs)))
                         .build();
                     HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
                     if (response.statusCode() != 200) {
@@ -260,11 +290,11 @@ public class BilibiliSearchService {
             }, detailExecutor);
             futures.add(future);
         }
-        for (CompletableFuture<Void> future : futures) {
-            try {
-                future.join();
-            } catch (Exception ignored) {
-            }
+        try {
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                .orTimeout(detailFetchTimeoutMs, TimeUnit.MILLISECONDS)
+                .join();
+        } catch (Exception ignored) {
         }
     }
     

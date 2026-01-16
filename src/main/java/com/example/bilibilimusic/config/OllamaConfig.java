@@ -9,9 +9,8 @@ import org.springframework.web.reactive.function.client.WebClient;
 public class OllamaConfig {
 
     @Bean
-    public WebClient ollamaWebClient(@Value("${ollama.base-url}") String baseUrl) {
-        return WebClient.builder()
-                .baseUrl(baseUrl)
-                .build();
+    public WebClient ollamaWebClient(WebClient.Builder builder,
+                                     @Value("${ollama.base-url}") String baseUrl) {
+        return builder.baseUrl(baseUrl).build();
     }
 }
