@@ -15,3 +15,6 @@
 .DS_Store
 Thumbs.db
 
+# Env files (secrets/local overrides)
+.env*
+!.env.desktop.example

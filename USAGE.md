@@ -39,6 +39,13 @@ cd d:\codes\java\bilibili-music
 mvn spring-boot:run
 ```
 
+### 4.1 One-click desktop start (Windows)
+
+- Create Desktop shortcut: `powershell -ExecutionPolicy Bypass -File scripts/windows/Install-Desktop-Shortcut.ps1`
+- Or double-click: `scripts/windows/Start-Bilibili-Music.cmd`
+- Optional env file: copy `.env.desktop.example` to `.env.desktop`
+- More docs: `DESKTOP_START.md`
+
 ### 5. 打开浏览器
 
 访问：http://localhost:8080
