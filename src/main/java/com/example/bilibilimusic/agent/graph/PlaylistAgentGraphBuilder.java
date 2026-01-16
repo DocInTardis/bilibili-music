@@ -10,10 +10,14 @@ import com.example.bilibilimusic.service.AgentMetricsService;
 import com.example.bilibilimusic.service.CacheService;
 import com.example.bilibilimusic.service.ContextPersistenceService;
 import com.example.bilibilimusic.service.DatabaseService;
+import com.example.bilibilimusic.service.PromptVersionService;
 import com.example.bilibilimusic.service.UserPreferenceService;
 import com.example.bilibilimusic.service.AudioFingerprintService;
+import com.example.bilibilimusic.service.observability.AgentObservabilityMetrics;
 import com.example.bilibilimusic.skill.*;
 import com.example.bilibilimusic.agent.graph.assembly.GraphAssemblyService;
+import io.micrometer.tracing.BaggageManager;
+import io.micrometer.tracing.Tracer;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -47,12 +51,24 @@ public class PlaylistAgentGraphBuilder {
     private final AgentExecutionConfig agentExecutionConfig;
     private final AudioFingerprintService audioFingerprintService;
     private final GraphAssemblyService graphAssemblyService;
+    private final Tracer tracer;
+    private final BaggageManager baggageManager;
+    private final PromptVersionService promptVersionService;
+    private final AgentObservabilityMetrics observabilityMetrics;
     
     /**
      * 构建 PlaylistAgent 状态图（根据请求选择策略）
      */
     public PlaylistAgentGraph build(PlaylistRequest request) {
-        PlaylistAgentGraph graph = new PlaylistAgentGraph(behaviorLogService, metricsService, contextPersistenceService);
+        PlaylistAgentGraph graph = new PlaylistAgentGraph(
+            behaviorLogService,
+            metricsService,
+            contextPersistenceService,
+            tracer,
+            baggageManager,
+            promptVersionService,
+            observabilityMetrics
+        );
                 
         PlaylistAgentPolicy policy = policySelector.selectPolicy(request);
         String policyName = policy.getClass().getSimpleName();

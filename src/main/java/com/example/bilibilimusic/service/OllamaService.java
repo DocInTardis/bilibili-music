@@ -3,6 +3,7 @@ package com.example.bilibilimusic.service;
 import com.example.bilibilimusic.dto.VideoInfo;
 import com.example.bilibilimusic.service.CacheService;
 import com.example.bilibilimusic.service.PromptVersionService;
+import com.example.bilibilimusic.service.observability.AgentObservabilityMetrics;
 import com.example.bilibilimusic.service.telemetry.LlmTelemetryService;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -28,6 +29,7 @@ public class OllamaService {
     private final PromptVersionService promptVersionService;
     private final CacheService cacheService;
     private final LlmTelemetryService llmTelemetryService;
+    private final AgentObservabilityMetrics observabilityMetrics;
 
     @Value("${ollama.model}")
     private String model;
@@ -64,6 +66,9 @@ public class OllamaService {
                     estimateTokens(systemPrompt) + estimateTokens(userPrompt),
                     estimateTokens(cached)
                 );
+                if (observabilityMetrics != null) {
+                    observabilityMetrics.recordLlmCall(nodeName, version, model, true, true, 0L);
+                }
                 return cached;
             }
         }
@@ -121,6 +126,10 @@ public class OllamaService {
                 promptTokens,
                 completionTokens
             );
+
+            if (observabilityMetrics != null) {
+                observabilityMetrics.recordLlmCall(nodeName, version, model, false, success, duration);
+            }
         }
 
         if (enableCache && cacheKey != null && content != null && !content.isBlank()) {

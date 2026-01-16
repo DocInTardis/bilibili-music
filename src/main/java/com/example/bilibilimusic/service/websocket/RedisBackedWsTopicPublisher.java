@@ -1,9 +1,15 @@
 package com.example.bilibilimusic.service.websocket;
 
+import com.example.bilibilimusic.dto.ChatMessage;
+import com.example.bilibilimusic.service.PromptVersionService;
+import com.example.bilibilimusic.service.observability.AgentObservabilityMetrics;
+import com.example.bilibilimusic.service.telemetry.AgentTraceContext;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -11,6 +17,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
+
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * WebSocket Topic 发布器：
@@ -25,6 +34,9 @@ public class RedisBackedWsTopicPublisher implements WsTopicPublisher {
     private final SimpMessagingTemplate messagingTemplate;
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
+    private final Tracer tracer;
+    private final PromptVersionService promptVersionService;
+    private final AgentObservabilityMetrics observabilityMetrics;
 
     @Value("${app.websocket.cluster.enabled:false}")
     private boolean clusterEnabled;
@@ -36,21 +48,80 @@ public class RedisBackedWsTopicPublisher implements WsTopicPublisher {
 
     @Override
     public void send(String destination, Object payload) {
+        Object enriched = enrichTrace(destination, payload);
         if (!clusterEnabled) {
-            messagingTemplate.convertAndSend(destination, payload);
+            messagingTemplate.convertAndSend(destination, enriched);
             return;
         }
         try {
             Envelope env = new Envelope();
             env.setDestination(destination);
             env.setInstanceId(instanceId);
-            env.setPayload(objectMapper.valueToTree(payload));
+            env.setPayload(objectMapper.valueToTree(enriched));
             String json = objectMapper.writeValueAsString(env);
             stringRedisTemplate.convertAndSend(channel, json);
         } catch (Exception e) {
             log.warn("[WsCluster] publish failed, fallback to local send: {}", e.getMessage());
-            messagingTemplate.convertAndSend(destination, payload);
+            messagingTemplate.convertAndSend(destination, enriched);
         }
+    }
+
+    private Object enrichTrace(String destination, Object payload) {
+        String messageType = payload instanceof ChatMessage cm ? cm.getType()
+            : (payload != null ? payload.getClass().getSimpleName() : "null");
+        if (observabilityMetrics != null) {
+            observabilityMetrics.recordWsSend(destination, messageType);
+        }
+
+        if (!(payload instanceof ChatMessage msg)) {
+            return payload;
+        }
+
+        Map<String, Object> trace = buildTraceMeta();
+        if (trace.isEmpty()) {
+            return payload;
+        }
+
+        Map<String, Object> p = msg.getPayload();
+        if (p == null) {
+            p = new HashMap<>();
+            msg.setPayload(p);
+        }
+        p.put("trace", trace);
+        return msg;
+    }
+
+    private Map<String, Object> buildTraceMeta() {
+        Map<String, Object> meta = new HashMap<>();
+
+        if (tracer != null) {
+            Span span = tracer.currentSpan();
+            if (span != null) {
+                meta.put("traceId", span.context().traceId());
+                meta.put("spanId", span.context().spanId());
+            }
+        }
+
+        AgentTraceContext.Context ctx = AgentTraceContext.get();
+        if (ctx != null) {
+            if (ctx.conversationId() != null) {
+                meta.put("sessionId", String.valueOf(ctx.conversationId()));
+            }
+            if (ctx.executionId() != null) {
+                meta.put("executionId", ctx.executionId());
+            }
+            if (ctx.nodeName() != null) {
+                meta.put("nodeName", ctx.nodeName());
+                if (promptVersionService != null) {
+                    meta.put("promptVersion", promptVersionService.getCurrentVersion(ctx.nodeName()));
+                }
+            }
+            if (ctx.playlistId() != null) {
+                meta.put("playlistId", String.valueOf(ctx.playlistId()));
+            }
+        }
+
+        return meta;
     }
 
     public void onClusterMessage(String json) {

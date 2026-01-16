@@ -7,11 +7,20 @@ import com.example.bilibilimusic.dto.NodeTrace;
 import com.example.bilibilimusic.service.AgentBehaviorLogService;
 import com.example.bilibilimusic.service.AgentMetricsService;
 import com.example.bilibilimusic.service.ContextPersistenceService;
+import com.example.bilibilimusic.service.PromptVersionService;
+import com.example.bilibilimusic.service.observability.AgentObservabilityMetrics;
+import io.micrometer.tracing.BaggageInScope;
+import io.micrometer.tracing.BaggageManager;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -27,6 +36,10 @@ public class PlaylistAgentGraph {
     private final AgentBehaviorLogService behaviorLogService;
     private final AgentMetricsService metricsService;
     private final ContextPersistenceService contextPersistenceService;
+    private final Tracer tracer;
+    private final BaggageManager baggageManager;
+    private final PromptVersionService promptVersionService;
+    private final AgentObservabilityMetrics observabilityMetrics;
         
     // 图定义版本号，用于区分不同版本的状态图结构
     @Getter
@@ -233,13 +246,55 @@ public class PlaylistAgentGraph {
                 while (!nodeSucceeded) {
                     attempt++;
                     long nodeStartTime = System.currentTimeMillis();
+                    String promptVersion = promptVersionService != null ? promptVersionService.getCurrentVersion(currentNode) : "unknown";
+                    String sessionId = state.getConversationId() != null
+                        ? String.valueOf(state.getConversationId())
+                        : (state.getPlaylistId() != null ? String.valueOf(state.getPlaylistId()) : "unknown");
+                    String executionId = executionTrace != null ? executionTrace.getExecutionId() : null;
+
+                    Span nodeSpan = null;
+                    Tracer.SpanInScope spanInScope = null;
+                    List<BaggageInScope> baggageScopes = new ArrayList<>();
                     try {
+                        if (tracer != null) {
+                            nodeSpan = tracer.nextSpan()
+                                .name("agent.node")
+                                .tag("node", currentNode)
+                                .tag("prompt.version", promptVersion)
+                                .tag("graph.version", graphVersion)
+                                .tag("policy", policyName != null ? policyName : "unknown")
+                                .tag("attempt", String.valueOf(attempt))
+                                .start();
+                            spanInScope = tracer.withSpan(nodeSpan);
+                        }
+
+                        if (baggageManager != null) {
+                            baggageScopes.add(baggageManager.createBaggageInScope("sessionId", sessionId));
+                            baggageScopes.add(baggageManager.createBaggageInScope("nodeName", currentNode));
+                            baggageScopes.add(baggageManager.createBaggageInScope("promptVersion", promptVersion));
+                            if (executionId != null) {
+                                baggageScopes.add(baggageManager.createBaggageInScope("executionId", executionId));
+                            }
+                        }
+
+                        MDC.put("sessionId", sessionId);
+                        MDC.put("nodeName", currentNode);
+                        MDC.put("promptVersion", promptVersion);
+                        if (executionId != null) {
+                            MDC.put("executionId", executionId);
+                        }
+
                         lastResult = node.execute(state);
                         
                         // 记录节点执行追踪
                         long nodeEndTime = System.currentTimeMillis();
                         long nodeDuration = nodeEndTime - nodeStartTime;
-                        
+
+                        if (nodeSpan != null) {
+                            String status = lastResult != null ? lastResult.getStatus().name() : "null";
+                            nodeSpan.tag("result.status", status);
+                        }
+
                         NodeTrace nodeTrace = NodeTrace.builder()
                             .nodeName(currentNode)
                             .startTime(nodeStartTime)
@@ -271,10 +326,14 @@ public class PlaylistAgentGraph {
                         
                         // 记录 Metrics：节点执行
                         metricsService.recordNodeExecution(
-                            state.getPlaylistId(), 
-                            currentNode, 
+                            state.getPlaylistId(),
+                            currentNode,
                             nodeDuration
                         );
+
+                        if (observabilityMetrics != null) {
+                            observabilityMetrics.recordNodeExecution(currentNode, promptVersion, true, attempt, nodeDuration);
+                        }
                         
                         // 在每个节点成功执行后保存一次核心状态快照（支持回放与断点分析）
                         int step = executionTrace.getNodeTraces() != null ? executionTrace.getNodeTraces().size() : 0;
@@ -288,6 +347,13 @@ public class PlaylistAgentGraph {
                     } catch (Exception e) {
                         long nodeEndTime = System.currentTimeMillis();
                         long nodeDuration = nodeEndTime - nodeStartTime;
+
+                        if (observabilityMetrics != null) {
+                            observabilityMetrics.recordNodeExecution(currentNode, promptVersion, false, attempt, nodeDuration);
+                        }
+                        if (nodeSpan != null) {
+                            nodeSpan.error(e);
+                        }
                         
                         NodeTrace nodeTrace = NodeTrace.builder()
                             .nodeName(currentNode)
@@ -326,6 +392,23 @@ public class PlaylistAgentGraph {
                         executionTrace.setStatus("FAILED");
                         executionState = ExecutionState.FAILED;
                         throw e;
+                    } finally {
+                        if (spanInScope != null) {
+                            spanInScope.close();
+                        }
+                        if (nodeSpan != null) {
+                            nodeSpan.end();
+                        }
+                        for (int i = baggageScopes.size() - 1; i >= 0; i--) {
+                            try {
+                                baggageScopes.get(i).close();
+                            } catch (Exception ignored) {
+                            }
+                        }
+                        MDC.remove("executionId");
+                        MDC.remove("promptVersion");
+                        MDC.remove("nodeName");
+                        MDC.remove("sessionId");
                     }
                 }
                 
