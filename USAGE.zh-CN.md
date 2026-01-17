@@ -1,0 +1,59 @@
+# Bilibili 音乐助手 Agent - 使用指南
+
+## 功能概览
+
+- Web UI：右侧对话生成歌单，左侧展示 B 站页面
+- Agent 流程：检索 → 本地规则/评分 → 边界场景 LLM 判定 → 汇总输出
+- 并行化：候选视频预评分并行执行，降低总耗时
+- 可观测：Trace/指标/WS 推送关联 traceId/sessionId/executionId/nodeName/promptVersion
+- 在线学习闭环：行为反馈 → 样本落库 → 训练模型版本 → A/B → 回滚
+
+## 快速开始（推荐：Docker 启动 MySQL + Redis）
+
+### 1) 启动依赖服务
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/dev/Up.ps1
+```
+
+初始化数据库（首次）：
+
+```powershell
+Get-Content backup.sql | docker compose -f docker-compose.dev.yml exec -T mysql mysql -uroot -proot bilibili
+```
+
+### 2) 启动 Ollama（本地模型）
+
+```powershell
+ollama pull qwen:7b
+ollama serve
+```
+
+### 3) 安装 Playwright 浏览器（仅首次）
+
+```powershell
+mvn exec:java -e -D exec.mainClass=com.microsoft.playwright.CLI -D exec.args="install chromium"
+```
+
+### 4) 启动应用
+
+```powershell
+$env:MYSQL_PASSWORD="root"
+mvn spring-boot:run
+```
+
+打开：`http://localhost:8080`
+
+## 常用环境变量
+
+- MySQL：`MYSQL_URL` / `MYSQL_USERNAME` / `MYSQL_PASSWORD`
+- Redis：`REDIS_HOST` / `REDIS_PORT` / `REDIS_DB` / `REDIS_PASSWORD`
+- Ollama：`OLLAMA_BASE_URL` / `OLLAMA_MODEL`
+- Online learning：`ONLINE_LEARNING_ENABLED` / `ONLINE_LEARNING_TREATMENT_RATIO` / `ONLINE_LEARNING_TRAINING_ENABLED`
+
+## 相关文档
+
+- 本地开发环境：`DEV_SETUP.md`
+- 桌面一键启动（Windows）：`DESKTOP_START.md`
+- 可观测（Prometheus/Grafana/OTel）：`OBSERVABILITY.md`
+

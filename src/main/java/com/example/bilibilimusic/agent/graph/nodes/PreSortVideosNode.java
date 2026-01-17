@@ -243,8 +243,8 @@ public class PreSortVideosNode implements AgentNode {
         String title = video.getTitle();
         if (title == null) return false;
         String t = title.toLowerCase();
-        return t.contains("合集") || t.contains("歌单") || t.contains("串烧")
-            || t.contains("mix") || t.contains("playlist") || t.contains("连播");
+        return t.contains("\u5408\u96c6") || t.contains("\u6b4c\u5355") || t.contains("\u4e32\u70e7")
+            || t.contains("mix") || t.contains("playlist") || t.contains("\u8fde\u64ad");
     }
 
     private boolean shouldHardReject(VideoInfo video, UserIntent intent) {
@@ -256,7 +256,10 @@ public class PreSortVideosNode implements AgentNode {
 
         // 负向关键词粗过滤
         String[] negativeKeywords = {
-            "教程", "教学", "教程", "reaction", "剪辑", "混剪", "集锦", "解说", "讲解", "翻唱", "现场", "live"
+            "\u6559\u7a0b", "\u6559\u5b66", "reaction",
+            "\u526a\u8f91", "\u6df7\u526a",
+            "\u96c6\u9526", "\u89e3\u8bf4", "\u8bb2\u89e3", "\u7ffb\u5531",
+            "\u73b0\u573a", "live"
         };
         for (String nk : negativeKeywords) {
             if (nk == null || nk.isBlank()) continue;
