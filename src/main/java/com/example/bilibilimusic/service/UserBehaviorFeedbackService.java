@@ -4,6 +4,7 @@ import com.example.bilibilimusic.entity.UserBehaviorEvent;
 import com.example.bilibilimusic.entity.UserPreference;
 import com.example.bilibilimusic.mapper.UserBehaviorEventMapper;
 import com.example.bilibilimusic.service.telemetry.DecisionTelemetryService;
+import com.example.bilibilimusic.service.onlinelearning.OnlineLearningSampleService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -32,6 +33,7 @@ public class UserBehaviorFeedbackService {
     private final DecisionTelemetryService decisionTelemetryService;
     private final UserBehaviorEventMapper userBehaviorEventMapper;
     private final DatabaseService databaseService;
+    private final OnlineLearningSampleService onlineLearningSampleService;
         
     // 冷启动阈值：交互次数少于此值时，启用探索策略
     private static final int COLD_START_THRESHOLD = 10;
@@ -105,6 +107,14 @@ public class UserBehaviorFeedbackService {
 
         // 在线评估：将用户反馈回流到决策准确率统计
         decisionTelemetryService.recordFeedback(event);
+
+        // 在线学习闭环：把反馈打标成训练信号（最佳努力，不影响主流程）
+        try {
+            if (onlineLearningSampleService != null) {
+                onlineLearningSampleService.tryLabelFromBehavior(event);
+            }
+        } catch (Exception ignored) {
+        }
     }
 
     private void enrichDerivedPreferences(UserBehaviorEvent event, double weightDelta) {

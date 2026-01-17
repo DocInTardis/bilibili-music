@@ -20,7 +20,7 @@ class VideoRelevanceScorerTest {
         UserBehaviorFeedbackService behavior = mock(UserBehaviorFeedbackService.class);
         UserPreferenceService preference = mock(UserPreferenceService.class);
         SemanticRelevanceService semantic = mock(SemanticRelevanceService.class);
-        VideoRelevanceScorer scorer = new VideoRelevanceScorer(behavior, preference, semantic);
+        VideoRelevanceScorer scorer = new VideoRelevanceScorer(behavior, preference, semantic, null);
 
         UserIntent intent = UserIntent.builder()
             .query("随便来点歌")

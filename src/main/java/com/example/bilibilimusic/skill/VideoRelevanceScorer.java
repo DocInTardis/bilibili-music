@@ -6,6 +6,7 @@ import com.example.bilibilimusic.entity.UserPreference;
 import com.example.bilibilimusic.service.UserBehaviorFeedbackService;
 import com.example.bilibilimusic.service.UserPreferenceService;
 import com.example.bilibilimusic.service.embedding.SemanticRelevanceService;
+import com.example.bilibilimusic.service.onlinelearning.OnlineLearningScoringService;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -33,6 +34,7 @@ public class VideoRelevanceScorer {
     private final UserBehaviorFeedbackService behaviorFeedbackService;
     private final UserPreferenceService preferenceService;
     private final SemanticRelevanceService semanticRelevanceService;
+    private final OnlineLearningScoringService onlineLearningScoringService;
     
     // ==================== 负关键词（黑名单） ====================
     
@@ -104,6 +106,14 @@ public class VideoRelevanceScorer {
                                     Map<String, Integer> artistPrefs, 
                                     Map<String, Integer> keywordPrefs,
                                     Long conversationId) {
+        return scoreVideo(video, intent, artistPrefs, keywordPrefs, conversationId, null);
+    }
+
+    public ScoringResult scoreVideo(VideoInfo video, UserIntent intent, 
+                                    Map<String, Integer> artistPrefs, 
+                                    Map<String, Integer> keywordPrefs,
+                                    Long conversationId,
+                                    Long userId) {
         ScoringResult result = new ScoringResult();
         result.setVideo(video);
             
@@ -123,6 +133,9 @@ public class VideoRelevanceScorer {
         if (containsNegativeKeywords(video)) {
             features.setNegativeKeywordHit(true);
             result.setScore(-100);
+            result.setBaseScore(-100);
+            result.setModelAdjustment(0);
+            result.setModelProbability(0.0);
             result.setReason("包含负关键词，直接拒绝");
             result.setReject(true);
             return result;
@@ -238,9 +251,42 @@ public class VideoRelevanceScorer {
             }
         }
                     
-        result.setScore(totalScore);
+        int baseScore = totalScore;
+        int modelAdjustment = 0;
+        String modelName = null;
+        String modelVersion = null;
+        String variant = null;
+        double probability = 0.5;
+
+        if (onlineLearningScoringService != null) {
+            OnlineLearningScoringService.OnlineScore online = onlineLearningScoringService.apply(userId, conversationId, features);
+            if (online != null) {
+                modelAdjustment = online.adjustment();
+                modelName = online.modelName();
+                modelVersion = online.modelVersion();
+                variant = online.variant();
+                probability = online.probability();
+                if (modelAdjustment != 0) {
+                    reasons.add(String.format("online(%s:%s) %+d(p=%.2f)",
+                        variant != null ? variant : "unknown",
+                        modelVersion != null ? modelVersion : "?",
+                        modelAdjustment,
+                        probability));
+                }
+            }
+        }
+
+        int finalScore = baseScore + modelAdjustment;
+        result.setBaseScore(baseScore);
+        result.setModelAdjustment(modelAdjustment);
+        result.setModelName(modelName);
+        result.setModelVersion(modelVersion);
+        result.setVariant(variant);
+        result.setModelProbability(probability);
+
+        result.setScore(finalScore);
         result.setReason(String.join("; ", reasons));
-        result.setReject(totalScore < 0); // 负分直接拒绝
+        result.setReject(finalScore < 0); // 负分直接拒绝
             
         return result;
     }
@@ -619,6 +665,13 @@ public class VideoRelevanceScorer {
         private int score;
         private String reason;
         private boolean reject; // 是否直接拒绝
+
+        private int baseScore;
+        private int modelAdjustment;
+        private String modelName;
+        private String modelVersion;
+        private String variant;
+        private double modelProbability = 0.5;
         
         /**
          * 接受阈值，支持 strict 等模式调整（默认 0）

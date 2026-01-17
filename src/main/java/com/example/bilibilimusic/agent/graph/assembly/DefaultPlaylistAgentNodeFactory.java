@@ -8,6 +8,7 @@ import com.example.bilibilimusic.service.CacheService;
 import com.example.bilibilimusic.service.DatabaseService;
 import com.example.bilibilimusic.service.UserPreferenceService;
 import com.example.bilibilimusic.service.telemetry.DecisionTelemetryService;
+import com.example.bilibilimusic.service.onlinelearning.OnlineLearningSampleService;
 import com.example.bilibilimusic.service.websocket.WsTopicPublisher;
 import com.example.bilibilimusic.skill.KeywordExtractionSkill;
 import com.example.bilibilimusic.skill.RetrievalSkill;
@@ -34,7 +35,8 @@ public class DefaultPlaylistAgentNodeFactory implements PlaylistAgentNodeFactory
                                           VideoRelevanceScorer relevanceScorer,
                                           AudioFingerprintService audioFingerprintService,
                                           DecisionTelemetryService decisionTelemetryService,
-                                          AgentPrefetchConfig agentPrefetchConfig) {
+                                          AgentPrefetchConfig agentPrefetchConfig,
+                                          OnlineLearningSampleService onlineLearningSampleService) {
         Map<String, Supplier<AgentNode>> map = new HashMap<>();
         map.put("intent_understanding", () -> new IntentUnderstandingNode(wsTopicPublisher));
         map.put("keyword_extraction", () -> new KeywordExtractionNode(keywordExtractionSkill, wsTopicPublisher, cacheService));
@@ -42,7 +44,7 @@ public class DefaultPlaylistAgentNodeFactory implements PlaylistAgentNodeFactory
         map.put("pre_sort_videos", () -> new PreSortVideosNode(preferenceService, cacheService, relevanceScorer, agentPrefetchConfig));
         map.put("content_analysis", () -> new ContentAnalysisNode(wsTopicPublisher, decisionTelemetryService));
         map.put("quantity_estimation", () -> new QuantityEstimationNode(audioFingerprintService));
-        map.put("relevance_decision", () -> new RelevanceDecisionNode(relevanceScorer, preferenceService, cacheService, decisionTelemetryService));
+        map.put("relevance_decision", () -> new RelevanceDecisionNode(relevanceScorer, preferenceService, cacheService, decisionTelemetryService, onlineLearningSampleService));
         map.put("video_accepted", () -> new VideoAcceptedNode(databaseService, wsTopicPublisher));
         map.put("progress_update", () -> new ProgressUpdateNode(wsTopicPublisher));
         map.put("loop_control", LoopControlNode::new);

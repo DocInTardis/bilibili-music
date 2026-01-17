@@ -162,3 +162,94 @@ CREATE TABLE user_tag_preference (
 
 ALTER TABLE playlist_item
 ADD COLUMN user_liked BOOLEAN NOT NULL DEFAULT FALSE COMMENT '用户是否在当前会话中喜欢';
+
+-- ==================== Online Learning (feedback -> sample -> train -> A/B -> rollback) ====================
+
+CREATE TABLE IF NOT EXISTS user_preference (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    conversation_id BIGINT COMMENT '会话ID',
+    preference_type VARCHAR(20) NOT NULL COMMENT '偏好类型：video/artist/keyword',
+    preference_target VARCHAR(255) NOT NULL COMMENT '偏好目标（BVID/艺人/关键词）',
+    weight_score INT NOT NULL DEFAULT 0 COMMENT '权重分数',
+    interaction_count INT NOT NULL DEFAULT 0 COMMENT '交互次数',
+    confidence DOUBLE NULL COMMENT '偏好置信度',
+    last_updated DATETIME COMMENT '最后更新时间',
+    created_at DATETIME COMMENT '创建时间',
+    INDEX idx_conv_type (conversation_id, preference_type),
+    INDEX idx_conv_target (conversation_id, preference_target)
+) ENGINE=INNODB DEFAULT CHARSET=utf8mb4 COMMENT='用户偏好表';
+
+CREATE TABLE IF NOT EXISTS user_behavior_event (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    conversation_id BIGINT COMMENT '会话ID',
+    behavior_type VARCHAR(32) NOT NULL COMMENT '行为类型（LIKE/SKIP/PLAY_COMPLETE等）',
+    target_type VARCHAR(32) NOT NULL COMMENT '目标类型（video/artist/keyword）',
+    target_id VARCHAR(255) NOT NULL COMMENT '目标ID（BVID/艺人/关键词）',
+    intensity DOUBLE NULL COMMENT '强度（0..1）',
+    context_json TEXT NULL COMMENT '上下文JSON',
+    occurred_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '发生时间',
+    applied BOOLEAN NOT NULL DEFAULT FALSE COMMENT '是否已应用到偏好',
+    INDEX idx_conv_time (conversation_id, occurred_at),
+    INDEX idx_target (target_type, target_id)
+) ENGINE=INNODB DEFAULT CHARSET=utf8mb4 COMMENT='用户行为事件（在线学习）';
+
+CREATE TABLE IF NOT EXISTS online_learning_config (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    config_key VARCHAR(64) NOT NULL,
+    config_value VARCHAR(255) NOT NULL,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_key (config_key)
+) ENGINE=INNODB DEFAULT CHARSET=utf8mb4 COMMENT='在线学习配置（热更新）';
+
+CREATE TABLE IF NOT EXISTS online_learning_model (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    model_name VARCHAR(128) NOT NULL,
+    model_version VARCHAR(64) NOT NULL,
+    weights_json LONGTEXT NOT NULL,
+    trained_samples INT NOT NULL DEFAULT 0,
+    metrics_json TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_model_version (model_name, model_version),
+    INDEX idx_model_created (model_name, created_at)
+) ENGINE=INNODB DEFAULT CHARSET=utf8mb4 COMMENT='在线学习模型版本（可回滚）';
+
+CREATE TABLE IF NOT EXISTS online_learning_sample (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    conversation_id BIGINT NULL,
+    user_id BIGINT NULL,
+    playlist_id BIGINT NULL,
+    session_id VARCHAR(64) NULL,
+    trace_id VARCHAR(64) NULL,
+    execution_id VARCHAR(64) NULL,
+    node_name VARCHAR(128) NULL,
+    prompt_version VARCHAR(64) NULL,
+
+    bvid VARCHAR(128) NOT NULL,
+    intent_json TEXT NULL,
+    features_json TEXT NULL,
+
+    base_score INT NULL,
+    model_adjustment INT NULL,
+    final_score INT NULL,
+    accepted BOOLEAN NULL,
+    decision_source VARCHAR(32) NULL,
+
+    model_name VARCHAR(128) NULL,
+    model_version VARCHAR(64) NULL,
+    variant VARCHAR(16) NULL,
+
+    label INT NULL COMMENT '1=正样本 0=负样本',
+    label_weight DOUBLE NULL,
+    label_source VARCHAR(64) NULL,
+    labeled_at DATETIME NULL,
+
+    trained BOOLEAN NULL DEFAULT FALSE,
+    trained_at DATETIME NULL,
+    trained_model_version VARCHAR(64) NULL,
+
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    INDEX idx_bvid_time (bvid, created_at),
+    INDEX idx_label_train (label, trained, labeled_at),
+    INDEX idx_conv_bvid (conversation_id, bvid)
+) ENGINE=INNODB DEFAULT CHARSET=utf8mb4 COMMENT='在线学习训练样本（可重复评测/训练）';

@@ -34,7 +34,7 @@ final class OfflineBenchmarkRunner {
                 return 0;
             });
 
-        VideoRelevanceScorer scorer = new VideoRelevanceScorer(behavior, preference, semantic);
+        VideoRelevanceScorer scorer = new VideoRelevanceScorer(behavior, preference, semantic, null);
 
         long startNs = System.nanoTime();
 
@@ -194,4 +194,3 @@ final class OfflineBenchmarkRunner {
     private record ScoredLabel(String bvid, int score, boolean relevant) {
     }
 }
-

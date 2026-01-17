@@ -8,6 +8,7 @@ import com.example.bilibilimusic.dto.VideoInfo;
 import com.example.bilibilimusic.service.CacheService;
 import com.example.bilibilimusic.service.UserPreferenceService;
 import com.example.bilibilimusic.service.telemetry.DecisionTelemetryService;
+import com.example.bilibilimusic.service.onlinelearning.OnlineLearningSampleService;
 import com.example.bilibilimusic.skill.VideoRelevanceScorer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,6 +29,7 @@ public class RelevanceDecisionNode implements AgentNode {
     private final UserPreferenceService preferenceService;
     private final CacheService cacheService;
     private final DecisionTelemetryService decisionTelemetryService;
+    private final OnlineLearningSampleService onlineLearningSampleService;
 
     @Override
     public NodeResult execute(PlaylistContext state) {
@@ -46,6 +48,7 @@ public class RelevanceDecisionNode implements AgentNode {
                 
         // 尝试从 Redis 缓存获取 LLM 判断结果
         VideoRelevanceScorer.ScoringResult scoringResult = cacheService.getCachedLLMJudgement(video.getBvid(), intent);
+        boolean fromCache = scoringResult != null;
                 
         if (scoringResult != null) {
             log.debug("[RelDecision] 命中 LLM 缓存: bvid={}, score={}", video.getBvid(), scoringResult.getScore());
@@ -59,10 +62,25 @@ public class RelevanceDecisionNode implements AgentNode {
                 : preferenceService.getKeywordPreferences(conversationId);
                                 
             // 使用打分制判断相关性（含偏好加成 & 探索/冷启动策略）
-            scoringResult = scorer.scoreVideo(video, intent, artistPrefs, keywordPrefs, conversationId);
+            scoringResult = scorer.scoreVideo(video, intent, artistPrefs, keywordPrefs, conversationId, userId);
                     
             // 缓存 LLM 判断结果
             cacheService.cacheLLMJudgement(video.getBvid(), intent, scoringResult);
+        }
+
+        try {
+            if (onlineLearningSampleService != null) {
+                onlineLearningSampleService.recordScoringSample(
+                    conversationId,
+                    userId,
+                    state.getPlaylistId(),
+                    intent,
+                    video,
+                    scoringResult,
+                    fromCache ? "CACHE" : "SCORER"
+                );
+            }
+        } catch (Exception ignored) {
         }
         boolean accepted = scoringResult.isAccepted();
         int score = scoringResult.getScore();

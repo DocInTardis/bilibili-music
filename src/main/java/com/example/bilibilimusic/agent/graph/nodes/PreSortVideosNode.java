@@ -124,7 +124,7 @@ public class PreSortVideosNode implements AgentNode {
                     return;
                 }
                 VideoRelevanceScorer.ScoringResult scoringResult =
-                    relevanceScorer.scoreVideo(v, state.getIntent(), artistPrefs, keywordPrefs, state.getConversationId());
+                    relevanceScorer.scoreVideo(v, state.getIntent(), artistPrefs, keywordPrefs, state.getConversationId(), state.getUserId());
                 cacheService.cacheLLMJudgement(v.getBvid(), state.getIntent(), scoringResult);
             });
         } catch (Exception e) {

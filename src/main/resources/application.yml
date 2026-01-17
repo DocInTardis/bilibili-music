@@ -88,6 +88,17 @@ job:
     worker:
       concurrency: ${JOB_QUEUE_WORKER_CONCURRENCY:2}
 
+onlineLearning:
+  training-enabled: ${ONLINE_LEARNING_TRAINING_ENABLED:true}
+  enabled: ${ONLINE_LEARNING_ENABLED:false}
+  treatment-ratio: ${ONLINE_LEARNING_TREATMENT_RATIO:0.0}
+  model-name: ${ONLINE_LEARNING_MODEL_NAME:video-relevance-lr-v1}
+  learning-rate: ${ONLINE_LEARNING_LR:0.05}
+  l2: ${ONLINE_LEARNING_L2:0.001}
+  max-batch-size: ${ONLINE_LEARNING_MAX_BATCH:100}
+  score-scale: ${ONLINE_LEARNING_SCORE_SCALE:8.0}
+  train-interval-ms: ${ONLINE_LEARNING_TRAIN_INTERVAL_MS:4000}
+
 resilience4j:
   circuitbreaker:
     configs:
