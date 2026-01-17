@@ -22,6 +22,7 @@ import com.example.bilibilimusic.service.telemetry.LlmTelemetryService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.env.Environment;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -43,6 +44,7 @@ public class PlaylistController {
     private final PromptVersionService promptVersionService;
     private final LlmTelemetryService llmTelemetryService;
     private final DecisionTelemetryService decisionTelemetryService;
+    private final Environment environment;
 
     @PostMapping
     public ResponseEntity<PlaylistResponse> generate(@Valid @RequestBody PlaylistRequest request) {
@@ -166,6 +168,20 @@ public class PlaylistController {
     @GetMapping("/observability/decision-stats")
     public ResponseEntity<DecisionTelemetryService.Snapshot> getDecisionStats() {
         return ResponseEntity.ok(decisionTelemetryService.snapshot());
+    }
+
+    /**
+     * 可选能力开关（用于前端展示“当前系统能力”）
+     */
+    @GetMapping("/observability/capabilities")
+    public ResponseEntity<java.util.Map<String, Object>> getCapabilities() {
+        java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
+        m.put("jobQueueEnabled", environment.getProperty("job.queue.enabled", Boolean.class, Boolean.TRUE));
+        m.put("ollamaEnabled", environment.getProperty("ollama.enabled", Boolean.class, Boolean.FALSE));
+        m.put("ollamaEmbeddingsEnabled", environment.getProperty("ollama.embeddings-enabled", Boolean.class, Boolean.FALSE));
+        m.put("ollamaEmbeddingModel", environment.getProperty("ollama.embedding-model", "nomic-embed-text"));
+        m.put("wsExternalBroker", environment.getProperty("ws.external-broker.enabled", Boolean.class, Boolean.FALSE));
+        return ResponseEntity.ok(m);
     }
 
     /**

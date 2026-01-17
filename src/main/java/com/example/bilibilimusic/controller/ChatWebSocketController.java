@@ -33,6 +33,24 @@ public class ChatWebSocketController {
                 request.setQuery(message.getContent());
                 request.setLimit(message.getLimit() != null ? message.getLimit() : 10);
 
+                if (message.getPayload() != null) {
+                    Object mode = message.getPayload().get("mode");
+                    if (mode instanceof String s && !s.isBlank()) {
+                        request.setMode(s);
+                    }
+                    Object preference = message.getPayload().get("preference");
+                    if (preference instanceof String s && !s.isBlank()) {
+                        request.setPreference(s);
+                    }
+                    Object limit = message.getPayload().get("limit");
+                    if (limit instanceof Number n) {
+                        int v = n.intValue();
+                        if (v > 0) {
+                            request.setLimit(v);
+                        }
+                    }
+                }
+
                 if (jobQueueService != null && jobQueueService.isEnabled()) {
                     String jobId = jobQueueService.submit(request);
                     return ChatMessage.builder()

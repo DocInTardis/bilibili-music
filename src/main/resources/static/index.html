@@ -610,12 +610,14 @@
                     <div>
                         <button style="margin-right:6px; padding:4px 8px; font-size:12px;" onclick="loadRecentExecutions()">刷新</button>
                         <button style="padding:4px 8px; font-size:12px;" onclick="compareSelectedExecutions()">对比</button>
+                        <button style="margin-left:6px; padding:4px 8px; font-size:12px;" onclick="loadObservabilityStats()">Stats</button>
                     </div>
                 </div>
                 <div id="executionHistoryContent">
                     <div style="color:#999;">点击“刷新”加载最近执行记录</div>
                 </div>
                 <div id="executionCompareResult" style="margin-top:8px;"></div>
+                <div id="observabilityStats" style="margin-top:8px;"></div>
             </div>
 
             <div class="chat-input-area">
@@ -624,6 +626,25 @@
                         <label style="display: flex; align-items: center; cursor: pointer;">
                             <input type="checkbox" id="highRelevanceMode" style="margin-right: 6px;">
                             <span style="font-size: 13px;">🎯 高相关度模式</span>
+                        </label>
+                        <label style="display:flex; align-items:center; gap:6px;">
+                            <span style="font-size: 12px; color: rgba(255,255,255,0.85);">Mode</span>
+                            <select id="runMode" style="font-size:12px; padding:2px 6px; border-radius:6px; border:1px solid rgba(255,255,255,0.25); background:rgba(0,0,0,0.2); color:#fff;">
+                                <option value="" selected>default</option>
+                                <option value="low_cost">low_cost (no LLM)</option>
+                            </select>
+                        </label>
+                        <label style="display:flex; align-items:center; gap:6px;">
+                            <span style="font-size: 12px; color: rgba(255,255,255,0.85);">Limit</span>
+                            <select id="resultLimit" style="font-size:12px; padding:2px 6px; border-radius:6px; border:1px solid rgba(255,255,255,0.25); background:rgba(0,0,0,0.2); color:#fff;">
+                                <option value="10" selected>10</option>
+                                <option value="15">15</option>
+                                <option value="20">20</option>
+                            </select>
+                        </label>
+                        <label style="display:flex; align-items:center; gap:6px; flex:1;">
+                            <span style="font-size: 12px; color: rgba(255,255,255,0.85);">Pref</span>
+                            <input id="preferenceInput" type="text" placeholder="optional preference" style="flex:1; min-width:160px; font-size:12px; padding:2px 6px; border-radius:6px; border:1px solid rgba(255,255,255,0.25); background:rgba(0,0,0,0.2); color:#fff;" />
                         </label>
                     </div>
                     <div class="input-row">
@@ -732,7 +753,7 @@
             } else if (data.type === 'video_accepted') {
                 // 流式接收：立即将采纳的视频加入播放列表
                 if (data.videos && data.videos.length > 0) {
-                    addVideoToPlaylistStreaming(data.videos[0], data.content);
+                    addVideoToPlaylistStreaming(data.videos[0], data.content, data.payload);
                 }
             } else if (data.type === 'result') {
                 // 最终结果（如果有需要的话）
@@ -760,7 +781,7 @@
         let isPlaying = false;        // 当前播放状态
 
         // 流式添加视频到播放列表（逐个添加）
-        function addVideoToPlaylistStreaming(video, message) {
+        function addVideoToPlaylistStreaming(video, message, decisionPayload) {
             if (!video) return;
 
             // 检查是否已存在（去重）
@@ -768,6 +789,11 @@
             if (exists) {
                 console.log('视频已存在，跳过：', video.title);
                 return;
+            }
+
+            // Attach decision/explainability payload for later inspection
+            if (decisionPayload) {
+                video.__decision = decisionPayload;
             }
 
             // 添加到播放列表
@@ -801,6 +827,9 @@
                 <div class="video-meta">
                     <span>👤 ${escapeHtml(video.author || '')}</span>
                     <span>⏱️ ${escapeHtml(video.duration || '')}</span>
+                    <button class="love-btn" onclick="event.stopPropagation(); showWhy(${newIndex})" title="why recommended">
+                        Why
+                    </button>
                     <button class="love-btn" onclick="event.stopPropagation(); likeVideo(${video.itemId || 0}, this)" title="喜欢这首歌">
                         ❤️
                     </button>
@@ -820,6 +849,34 @@
             }
 
             console.log('流式添加视频：', video.title, `(总计${currentPlaylist.length}首)`);
+        }
+
+        function showWhy(index) {
+            try {
+                if (index == null || index < 0 || index >= currentPlaylist.length) {
+                    alert('No decision info');
+                    return;
+                }
+                const video = currentPlaylist[index];
+                const d = video ? video.__decision : null;
+                if (!d) {
+                    alert('No decision info');
+                    return;
+                }
+                const f = d.features || {};
+                const lines = [
+                    `reasonCode: ${d.reasonCode || ''}`,
+                    `score: ${d.score ?? ''} (base=${d.baseScore ?? ''}, adj=${d.modelAdjustment ?? ''})`,
+                    `semanticScore: ${f.semanticScore ?? ''}`,
+                    `keywordScore: ${(f.titleScore ?? 0) + (f.tagScore ?? 0) + (f.descriptionScore ?? 0) + (f.authorScore ?? 0)}`,
+                    `credibilityScore: ${f.credibilityScore ?? ''}`,
+                    `variant: ${d.variant || ''}`,
+                    `model: ${(d.modelName || '')} ${(d.modelVersion || '')}`
+                ];
+                alert(lines.join('\\n'));
+            } catch (e) {
+                alert('No decision info');
+            }
         }
 
         // 更新播放列表（同一个窗口内多次查询会叠加，新结果在上）
@@ -1038,10 +1095,21 @@
             addUserMessage(text);
             
             if (stompClient && stompClient.connected) {
+                const modeEl = document.getElementById('runMode');
+                const limitEl = document.getElementById('resultLimit');
+                const prefEl = document.getElementById('preferenceInput');
+                const mode = modeEl ? (modeEl.value || '') : '';
+                const limit = limitEl ? parseInt(limitEl.value || '10', 10) : 10;
+                const preference = prefEl ? (prefEl.value || '').trim() : '';
                 const message = {
                     type: 'query',
                     content: text,
-                    limit: 10
+                    limit: Number.isFinite(limit) && limit > 0 ? limit : 10,
+                    payload: {
+                        mode: mode,
+                        limit: Number.isFinite(limit) && limit > 0 ? limit : 10,
+                        preference: preference
+                    }
                 };
                 stompClient.send('/app/chat', {}, JSON.stringify(message));
             } else {
@@ -1634,6 +1702,52 @@
                         content.innerHTML = '<div style="color:#c00;">加载执行历史失败</div>';
                     }
                 });
+        }
+
+        function loadObservabilityStats() {
+            const panel = document.getElementById('observabilityStats');
+            if (!panel) return;
+            panel.innerHTML = '<div style="color:#999;">Loading stats...</div>';
+
+            Promise.all([
+                fetch('/api/playlist/observability/prompt-versions').then(r => r.json()),
+                fetch('/api/playlist/observability/llm-stats').then(r => r.json()),
+                fetch('/api/playlist/observability/decision-stats').then(r => r.json()),
+                fetch('/api/playlist/observability/error-stats?hours=24').then(r => r.json()),
+                fetch('/api/playlist/observability/capabilities').then(r => r.json())
+            ]).then(([promptVersions, llmStats, decisionStats, errorStats, capabilities]) => {
+                const pv = promptVersions || {};
+                const llm = llmStats || {};
+                const dec = decisionStats || {};
+                const err = errorStats || {};
+                const cap = capabilities || {};
+
+                const totalCalls = llm.totalCalls ?? '';
+                const nodeCount = llm.nodes ? llm.nodes.length : 0;
+
+                const totalDecisions = dec.totalDecisions ?? '';
+                const feedbackTotal = dec.feedbackTotal ?? '';
+                const feedbackAccuracy = dec.feedbackAccuracy ?? '';
+
+                const totalErrors = err.totalErrors ?? '';
+
+                let html = '<div style="border:1px solid #eee; border-radius:8px; padding:8px;">';
+                html += '<div style="font-weight:600; margin-bottom:6px;">Observability</div>';
+                html += `<div style="margin-bottom:6px;"><strong>LLM</strong> calls=${totalCalls}, nodes=${nodeCount}</div>`;
+                html += `<div style="margin-bottom:6px;"><strong>Decision</strong> total=${totalDecisions}, feedback=${feedbackTotal}, accuracy=${feedbackAccuracy}</div>`;
+                html += `<div style="margin-bottom:6px;"><strong>Errors(24h)</strong> total=${totalErrors}</div>`;
+                html += `<div style="margin-bottom:6px;"><strong>Capabilities</strong> jobQueue=${cap.jobQueueEnabled}, embeddings=${cap.ollamaEmbeddingsEnabled}, extBroker=${cap.wsExternalBroker}</div>`;
+                html += '<div><strong>Prompt versions</strong><div style="margin-top:4px; display:flex; flex-wrap:wrap; gap:6px;">';
+                Object.keys(pv).sort().forEach(k => {
+                    html += `<span style="border:1px solid #ddd; border-radius:999px; padding:2px 8px; font-size:12px;">${escapeHtml(k)}=${escapeHtml(pv[k])}</span>`;
+                });
+                html += '</div></div>';
+                html += '</div>';
+                panel.innerHTML = html;
+            }).catch(err => {
+                console.error('load stats failed:', err);
+                panel.innerHTML = '<div style="color:#c00;">Load stats failed</div>';
+            });
         }
 
         function renderExecutionHistory() {

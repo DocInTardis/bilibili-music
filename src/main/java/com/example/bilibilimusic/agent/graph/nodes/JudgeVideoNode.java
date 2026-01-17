@@ -13,6 +13,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 /**
@@ -44,6 +46,8 @@ public class JudgeVideoNode implements AgentNode {
 
         int total = state.getSearchResults().size();
         int targetCount = state.getIntent() != null ? state.getIntent().getTargetCount() : 0;
+        Set<String> modeTags = parseModeTags(state.getIntent() != null ? state.getIntent().getMode() : null);
+        boolean lowCost = modeTags.contains("low_cost");
 
         int batchSize = Integer.parseInt(System.getProperty("agent.judge.batch-size", "8"));
         int endExclusive = Math.min(total, index + Math.max(1, batchSize));
@@ -80,11 +84,23 @@ public class JudgeVideoNode implements AgentNode {
             if (scoringResult.getScore() >= curationSkill.getLlmThresholdHigh()) {
                 state.getSelectedVideos().add(video);
                 state.setAccumulatedCount(state.getAccumulatedCount() + 1);
-                pushVideoAccepted(state, video, scoringResult.getScore(), "高分直接接受");
+                pushVideoAccepted(state, video, scoringResult, "HIGH_SCORE_ACCEPT");
                 continue;
             }
             if (scoringResult.getScore() <= curationSkill.getLlmThresholdLow()) {
                 state.getRejectedVideos().add(video);
+                continue;
+            }
+
+            if (lowCost) {
+                boolean accept = lowCostBorderlineAccept(scoringResult);
+                if (accept) {
+                    state.getSelectedVideos().add(video);
+                    state.setAccumulatedCount(state.getAccumulatedCount() + 1);
+                    pushVideoAccepted(state, video, scoringResult, "LOW_COST_RULE_ACCEPT");
+                } else {
+                    state.getRejectedVideos().add(video);
+                }
                 continue;
             }
 
@@ -93,7 +109,7 @@ public class JudgeVideoNode implements AgentNode {
             if (llmAccept) {
                 state.getSelectedVideos().add(video);
                 state.setAccumulatedCount(state.getAccumulatedCount() + 1);
-                pushVideoAccepted(state, video, scoringResult.getScore(), "LLM边界判断接受");
+                pushVideoAccepted(state, video, scoringResult, "LLM_BORDERLINE_ACCEPT");
             } else {
                 state.getRejectedVideos().add(video);
             }
@@ -111,23 +127,64 @@ public class JudgeVideoNode implements AgentNode {
         return NodeResult.success("continue_check");
     }
     
-    private void pushVideoAccepted(PlaylistContext context, VideoInfo video, int score, String reason) {
+    private void pushVideoAccepted(PlaylistContext context,
+                                   VideoInfo video,
+                                   VideoRelevanceScorer.ScoringResult scoringResult,
+                                   String reasonCode) {
         Map<String, Object> payload = new HashMap<>();
         payload.put("bvid", video.getBvid());
         payload.put("title", video.getTitle());
         payload.put("author", video.getAuthor());
         payload.put("duration", video.getDuration());
-        payload.put("score", score);
-        payload.put("reason", reason);
-        payload.put("progress", String.format("%d/%d", 
+        payload.put("score", scoringResult != null ? scoringResult.getScore() : null);
+        payload.put("reasonCode", reasonCode);
+        payload.put("reason", scoringResult != null ? scoringResult.getReason() : null);
+        payload.put("features", scoringResult != null ? scoringResult.getFeatures() : null);
+        payload.put("baseScore", scoringResult != null ? scoringResult.getBaseScore() : null);
+        payload.put("modelAdjustment", scoringResult != null ? scoringResult.getModelAdjustment() : null);
+        payload.put("modelName", scoringResult != null ? scoringResult.getModelName() : null);
+        payload.put("modelVersion", scoringResult != null ? scoringResult.getModelVersion() : null);
+        payload.put("variant", scoringResult != null ? scoringResult.getVariant() : null);
+        payload.put("modelProbability", scoringResult != null ? scoringResult.getModelProbability() : null);
+        payload.put("progress", String.format("%d/%d",
             context.getAccumulatedCount(), context.getIntent().getTargetCount()));
 
         com.example.bilibilimusic.dto.ChatMessage msg = com.example.bilibilimusic.dto.ChatMessage.builder()
             .type("video_accepted")
             .stage("CURATION")
-            .content(String.format("✅ 接受: %s", video.getTitle()))
+            .content(String.format("ACCEPT: %s", video.getTitle()))
             .payload(payload)
             .build();
         wsTopicPublisher.send("/topic/messages", msg);
+    }
+
+    private boolean lowCostBorderlineAccept(VideoRelevanceScorer.ScoringResult scoringResult) {
+        if (scoringResult == null || scoringResult.getFeatures() == null) {
+            return false;
+        }
+        VideoRelevanceScorer.ScoringFeatures f = scoringResult.getFeatures();
+
+        int semantic = f.getSemanticScore();
+        int keyword = f.getTitleScore() + f.getTagScore() + f.getDescriptionScore() + f.getAuthorScore();
+        int credibility = f.getCredibilityScore();
+        boolean negative = f.isNegativeKeywordHit();
+
+        if (negative) {
+            return false;
+        }
+        if (semantic >= 4) {
+            return true;
+        }
+        return keyword >= 6 && credibility >= 1;
+    }
+
+    private Set<String> parseModeTags(String mode) {
+        if (mode == null || mode.isBlank()) {
+            return java.util.Collections.emptySet();
+        }
+        return java.util.Arrays.stream(mode.toLowerCase().split("[,;|+]"))
+            .map(String::trim)
+            .filter(s -> !s.isEmpty())
+            .collect(Collectors.toSet());
     }
 }
