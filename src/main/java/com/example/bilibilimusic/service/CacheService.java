@@ -38,6 +38,7 @@ public class CacheService {
     private static final long KEYWORD_CACHE_TTL = 7200;      // 2小时
     private static final long LLM_RESULT_CACHE_TTL = 86400;  // 24小时
     private static final long PREFERENCE_CACHE_TTL = 604800; // 7天
+    private static final long VIDEO_DETAIL_CACHE_TTL = 604800; // 7 days
     // 行为序列状态 TTL（与偏好保持一致）
     private static final long BEHAVIOR_SEQ_TTL = PREFERENCE_CACHE_TTL;
     // Prompt 结果缓存 TTL（复用 LLM 结果的 24 小时窗口）
@@ -378,6 +379,62 @@ public class CacheService {
             return value;
         } catch (Exception e) {
             log.warn("[Cache] 读取 Prompt 结果缓存失败: key={}", cacheKey, e);
+            return null;
+        }
+    }
+
+    // ==================== 6. Video detail cache ====================
+
+    public String buildVideoDetailCacheKey(String bvid, String url) {
+        if (bvid != null && !bvid.isBlank()) {
+            return "video:detail:bvid:" + bvid.trim();
+        }
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+        return "video:detail:url:" + md5(url.trim());
+    }
+
+    public void cacheVideoDetail(VideoInfo video) {
+        if (video == null) {
+            return;
+        }
+        String key = buildVideoDetailCacheKey(video.getBvid(), video.getUrl());
+        if (key == null) {
+            return;
+        }
+        try {
+            VideoInfo snapshot = VideoInfo.builder()
+                .bvid(video.getBvid())
+                .title(video.getTitle())
+                .tags(video.getTags())
+                .description(video.getDescription())
+                .playCount(video.getPlayCount())
+                .commentCount(video.getCommentCount())
+                .build();
+            String json = objectMapper.writeValueAsString(snapshot);
+            stringRedisTemplate.opsForValue().set(key, json, VIDEO_DETAIL_CACHE_TTL, TimeUnit.SECONDS);
+            log.debug("[Cache] Cache video detail: key={}, bvid={}", key, video.getBvid());
+        } catch (Exception e) {
+            log.warn("[Cache] Cache video detail failed: key={}, error={}", key, e.getMessage());
+        }
+    }
+
+    public VideoInfo getCachedVideoDetail(String bvid, String url) {
+        String key = buildVideoDetailCacheKey(bvid, url);
+        if (key == null) {
+            return null;
+        }
+        try {
+            String json = stringRedisTemplate.opsForValue().get(key);
+            if (json == null) {
+                return null;
+            }
+            VideoInfo cached = objectMapper.readValue(json, VideoInfo.class);
+            log.debug("[Cache] Hit video detail cache: key={}, bvid={}", key, bvid);
+            return cached;
+        } catch (Exception e) {
+            log.warn("[Cache] Read video detail cache failed: key={}, error={}", key, e.getMessage());
             return null;
         }
     }

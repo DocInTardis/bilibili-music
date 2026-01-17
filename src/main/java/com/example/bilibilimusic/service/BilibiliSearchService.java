@@ -34,6 +34,10 @@ import java.time.Duration;
 @Slf4j
 public class BilibiliSearchService {
 
+    private static final Pattern BVID_PATTERN = Pattern.compile("/video/(BV[0-9A-Za-z]+)", Pattern.CASE_INSENSITIVE);
+
+    private final CacheService cacheService;
+
     @Value("${bilibili.search-url-template}")
     private String searchUrlTemplate;
 
@@ -93,8 +97,10 @@ public class BilibiliSearchService {
         if (url == null || url.isBlank()) {
             return null;
         }
+        String bvid = extractBvid(url);
         List<VideoInfo> result = new ArrayList<>();
         result.add(VideoInfo.builder()
+            .bvid(bvid)
             .url(url)
             .title("手动添加视频")
             .author("未知")
@@ -102,8 +108,16 @@ public class BilibiliSearchService {
             .tags("")
             .description("")
             .build());
+        VideoInfo cached = cacheService.getCachedVideoDetail(bvid, url);
+        if (cached != null) {
+            applyCachedDetail(cached, result.get(0));
+            return result.get(0);
+        }
         try (Playwright playwright = Playwright.create()) {
             enrichVideoDetailsWithPlaywright(playwright, result);
+            if (hasAnyDetail(result.get(0))) {
+                cacheService.cacheVideoDetail(result.get(0));
+            }
         } catch (Exception e) {
             log.error("Playwright 抓取单个视频详情失败: {}", url, e);
         }
@@ -167,6 +181,7 @@ public class BilibiliSearchService {
                         if (href != null && href.contains("/video/") && !title.isEmpty()) {
                             String finalUrl = href.startsWith("http") ? href : "https:" + href;
                             result.add(VideoInfo.builder()
+                                    .bvid(extractBvid(finalUrl))
                                     .title(title)
                                     .url(finalUrl)
                                     .author("未知")
@@ -221,6 +236,7 @@ public class BilibiliSearchService {
                         String duration = durationSpan != null ? durationSpan.innerText().trim() : "未知";
 
                         result.add(VideoInfo.builder()
+                                .bvid(extractBvid(finalUrl))
                                 .title(title)
                                 .url(finalUrl)
                                 .author(author)
@@ -271,6 +287,13 @@ public class BilibiliSearchService {
                     if (video.getUrl() == null || video.getUrl().isBlank()) {
                         return;
                     }
+                    if (!hasAnyDetail(video)) {
+                        VideoInfo cached = cacheService.getCachedVideoDetail(video.getBvid(), video.getUrl());
+                        if (cached != null) {
+                            applyCachedDetail(cached, video);
+                            return;
+                        }
+                    }
                     HttpRequest request = HttpRequest.newBuilder()
                         .uri(URI.create(video.getUrl()))
                         .GET()
@@ -284,6 +307,9 @@ public class BilibiliSearchService {
                     }
                     String html = response.body();
                     enrichVideoFromHtml(html, video);
+                    if (hasAnyDetail(video)) {
+                        cacheService.cacheVideoDetail(video);
+                    }
                 } catch (Exception e) {
                     log.debug("HTTP 抓取视频详情失败: {} - {}", video.getUrl(), e.getMessage());
                 }
@@ -507,6 +533,54 @@ public class BilibiliSearchService {
     /**
      * 解析数量文本（支持 "1.2万"、"3.5亿" 等格式）
      */
+    private String extractBvid(String url) {
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+        Matcher m = BVID_PATTERN.matcher(url);
+        if (m.find()) {
+            return m.group(1);
+        }
+        return null;
+    }
+
+    private boolean hasAnyDetail(VideoInfo video) {
+        if (video == null) {
+            return false;
+        }
+        if (video.getTags() != null && !video.getTags().isBlank()) {
+            return true;
+        }
+        if (video.getDescription() != null && !video.getDescription().isBlank()) {
+            return true;
+        }
+        if (video.getPlayCount() != null) {
+            return true;
+        }
+        return video.getCommentCount() != null;
+    }
+
+    private void applyCachedDetail(VideoInfo cached, VideoInfo target) {
+        if (cached == null || target == null) {
+            return;
+        }
+        if (cached.getTitle() != null && !cached.getTitle().isBlank()) {
+            target.setTitle(cached.getTitle());
+        }
+        if (cached.getTags() != null && !cached.getTags().isBlank()) {
+            target.setTags(cached.getTags());
+        }
+        if (cached.getDescription() != null && !cached.getDescription().isBlank()) {
+            target.setDescription(cached.getDescription());
+        }
+        if (cached.getPlayCount() != null) {
+            target.setPlayCount(cached.getPlayCount());
+        }
+        if (cached.getCommentCount() != null) {
+            target.setCommentCount(cached.getCommentCount());
+        }
+    }
+
     private Long parseCountText(String text) {
         if (text == null || text.isBlank()) {
             return null;

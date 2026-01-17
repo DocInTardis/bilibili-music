@@ -713,8 +713,15 @@
         // 处理服务器消息
         function handleServerMessage(data) {
             console.log('收到消息:', data);
-            if (data.type === 'status') {
-                addStatusMessage(data.content);
+            if (data.type === 'accepted') {
+                const jobId = data.payload && data.payload.jobId ? data.payload.jobId : null;
+                const message = jobId
+                    ? `${data.content || 'Job accepted'} (jobId=${jobId})`
+                    : (data.content || 'Job accepted');
+                addStatusMessage(message);
+            } else if (data.type === 'status') {
+                const jobId = data.payload && data.payload.jobId ? data.payload.jobId : null;
+                addStatusMessage(jobId ? `[${jobId}] ${data.content}` : data.content);
             } else if (data.type === 'stage_update') {
                 renderStageInsight(data.stage, data.payload, data.content);
             } else if (data.type === 'search_results') {
