@@ -43,6 +43,10 @@ public class IntentUnderstandingNode implements AgentNode {
         payload.put("targetCount", context.getIntent().getTargetCount());
         payload.put("scenario", context.getIntent().getScenario());
         payload.put("preference", context.getIntent().getPreference());
+        payload.put("requestType", context.getIntent().getRequestType());
+        payload.put("albumTitle", context.getIntent().getAlbumTitle());
+        payload.put("albumArtist", context.getIntent().getAlbumArtist());
+        payload.put("albumOrder", context.getIntent().isAlbumOrder());
 
         com.example.bilibilimusic.dto.ChatMessage msg = com.example.bilibilimusic.dto.ChatMessage.builder()
             .type("stage_update")

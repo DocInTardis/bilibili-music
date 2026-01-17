@@ -212,15 +212,25 @@ public class VideoRelevanceScorer {
             }
         }
             
+        boolean albumMode = intent != null
+            && ((intent.getAlbumTitle() != null && !intent.getAlbumTitle().isBlank())
+                || "album".equalsIgnoreCase(intent.getRequestType()));
+
         // 8. 合集/串烧 (-3)
         if (isCollection(video)) {
-            totalScore -= 3;
-            features.setCollectionPenalty(-3);
-            reasons.add("合集/串烧: -3");
+            if (albumMode) {
+                totalScore += 2;
+                features.setCollectionPenalty(2);
+                reasons.add("album/collection: +2");
+            } else {
+                totalScore -= 3;
+                features.setCollectionPenalty(-3);
+                reasons.add("合集/串烧: -3");
+            }
         }
             
         // 9. 时长异常 (-2)
-        int durationPenalty = scoreDuration(video.getDuration());
+        int durationPenalty = albumMode ? 0 : scoreDuration(video.getDuration());
         features.setDurationPenalty(durationPenalty);
         if (durationPenalty < 0) {
             totalScore += durationPenalty;

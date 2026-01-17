@@ -19,6 +19,8 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 预排序节点：对搜索结果按优先级排序（使用 Redis 偏好缓存）
@@ -33,6 +35,11 @@ import java.util.stream.Collectors;
 @Slf4j
 @RequiredArgsConstructor
 public class PreSortVideosNode implements AgentNode {
+
+    private static final Pattern TRACK_NO_PREFIX = Pattern.compile("^\\s*(?:\\[|\\(|#)?\\s*(\\d{1,2})\\s*(?:[\\]\\)\\-_.:]|\\s+)");
+    private static final Pattern TRACK_NO_SLASH = Pattern.compile("\\b(\\d{1,2})\\s*/\\s*\\d{1,2}\\b");
+    private static final Pattern TRACK_NO_EN = Pattern.compile("(?i)\\btrack\\s*(\\d{1,2})\\b");
+    private static final Pattern TRACK_NO_CH = Pattern.compile("\\u7b2c\\s*(\\d{1,2})\\s*\\u9996");
     
     private final UserPreferenceService preferenceService;
     private final CacheService cacheService;
@@ -95,6 +102,12 @@ public class PreSortVideosNode implements AgentNode {
             .collect(Collectors.toList());
 
         List<VideoInfo> sorted = prefetchAndRerank(state, artistPrefs, keywordPrefs, initialSorted);
+        if (shouldApplyAlbumOrder(state.getIntent())) {
+            for (VideoInfo v : sorted) {
+                annotateAlbumTrack(v, state.getIntent());
+            }
+            sorted = orderByTrackNoPreferPopularity(sorted);
+        }
         state.setSearchResults(sorted);
         
         // 初始化循环控制字段
@@ -141,6 +154,13 @@ public class PreSortVideosNode implements AgentNode {
             return sortedVideos;
         }
 
+        boolean albumOrder = shouldApplyAlbumOrder(state != null ? state.getIntent() : null);
+        if (albumOrder) {
+            for (VideoInfo v : sortedVideos) {
+                annotateAlbumTrack(v, state.getIntent());
+            }
+        }
+
         List<VideoInfo> rerankedSlice = slice.stream()
             .filter(v -> v != null && v.getBvid() != null && !v.getBvid().isBlank())
             .sorted(Comparator
@@ -154,7 +174,11 @@ public class PreSortVideosNode implements AgentNode {
             )
             .toList();
 
-        rerankedSlice = diversifyNoAdjacentSameAuthor(rerankedSlice, results);
+        if (albumOrder) {
+            rerankedSlice = orderByTrackNoPreferHighScore(rerankedSlice, results);
+        } else {
+            rerankedSlice = diversifyNoAdjacentSameAuthor(rerankedSlice, results);
+        }
 
         List<VideoInfo> out = new ArrayList<>(sortedVideos.size());
         out.addAll(rerankedSlice);
@@ -163,6 +187,209 @@ public class PreSortVideosNode implements AgentNode {
         }
 
         return deduplicateByBvidPreserveOrder(out);
+    }
+
+    private boolean shouldApplyAlbumOrder(UserIntent intent) {
+        if (intent == null) {
+            return false;
+        }
+        if (intent.isAlbumOrder() && intent.getAlbumTitle() != null && !intent.getAlbumTitle().isBlank()) {
+            return true;
+        }
+        String mode = intent.getMode();
+        if (mode == null || mode.isBlank()) {
+            return false;
+        }
+        for (String part : mode.toLowerCase().split("[,;|+]")) {
+            String t = part != null ? part.trim() : "";
+            if ("album_order".equals(t) || "album".equals(t)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void annotateAlbumTrack(VideoInfo video, UserIntent intent) {
+        if (video == null || intent == null) {
+            return;
+        }
+        if (intent.getAlbumTitle() != null && !intent.getAlbumTitle().isBlank()
+            && (video.getAlbumTitle() == null || video.getAlbumTitle().isBlank())) {
+            video.setAlbumTitle(intent.getAlbumTitle());
+        }
+        if (video.getTrackNo() == null) {
+            video.setTrackNo(extractTrackNo(video));
+        }
+    }
+
+    private Integer extractTrackNo(VideoInfo video) {
+        if (video == null) {
+            return null;
+        }
+        String title = video.getTitle();
+        if (title == null || title.isBlank()) {
+            return null;
+        }
+        String t = title.trim();
+
+        Matcher m1 = TRACK_NO_SLASH.matcher(t);
+        if (m1.find()) {
+            return parseTrackNo(m1.group(1));
+        }
+        Matcher m2 = TRACK_NO_EN.matcher(t);
+        if (m2.find()) {
+            return parseTrackNo(m2.group(1));
+        }
+        Matcher m3 = TRACK_NO_CH.matcher(t);
+        if (m3.find()) {
+            return parseTrackNo(m3.group(1));
+        }
+        Matcher m4 = TRACK_NO_PREFIX.matcher(t);
+        if (m4.find()) {
+            return parseTrackNo(m4.group(1));
+        }
+        return null;
+    }
+
+    private Integer parseTrackNo(String s) {
+        if (s == null || s.isBlank()) {
+            return null;
+        }
+        try {
+            int v = Integer.parseInt(s.trim());
+            if (v >= 1 && v <= 99) {
+                return v;
+            }
+            return null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private List<VideoInfo> orderByTrackNoPreferHighScore(List<VideoInfo> reranked,
+                                                          Map<String, VideoRelevanceScorer.ScoringResult> results) {
+        if (reranked == null || reranked.size() <= 2) {
+            return reranked;
+        }
+
+        java.util.Map<Integer, VideoInfo> bestByTrack = new java.util.HashMap<>();
+        java.util.Set<String> inBest = new java.util.HashSet<>();
+        java.util.List<VideoInfo> noTrack = new java.util.ArrayList<>();
+
+        for (VideoInfo v : reranked) {
+            if (v == null || v.getBvid() == null || v.getBvid().isBlank()) {
+                continue;
+            }
+            Integer tn = v.getTrackNo();
+            if (tn == null) {
+                tn = extractTrackNo(v);
+                v.setTrackNo(tn);
+            }
+            if (tn == null) {
+                noTrack.add(v);
+                continue;
+            }
+            VideoInfo prev = bestByTrack.get(tn);
+            if (prev == null) {
+                bestByTrack.put(tn, v);
+                continue;
+            }
+            int sPrev = scoreOf(prev, results);
+            int sNow = scoreOf(v, results);
+            if (sNow > sPrev) {
+                bestByTrack.put(tn, v);
+            } else if (sNow == sPrev) {
+                long pPrev = prev.getPlayCount() != null ? prev.getPlayCount() : 0L;
+                long pNow = v.getPlayCount() != null ? v.getPlayCount() : 0L;
+                if (pNow > pPrev) {
+                    bestByTrack.put(tn, v);
+                }
+            }
+        }
+
+        if (bestByTrack.isEmpty()) {
+            return reranked;
+        }
+
+        java.util.List<Integer> keys = new java.util.ArrayList<>(bestByTrack.keySet());
+        keys.sort(Integer::compareTo);
+        java.util.List<VideoInfo> out = new java.util.ArrayList<>(reranked.size());
+        for (Integer k : keys) {
+            VideoInfo v = bestByTrack.get(k);
+            if (v != null) {
+                out.add(v);
+                inBest.add(v.getBvid());
+            }
+        }
+
+        for (VideoInfo v : reranked) {
+            if (v == null || v.getBvid() == null || v.getBvid().isBlank()) {
+                continue;
+            }
+            if (!inBest.contains(v.getBvid())) {
+                out.add(v);
+            }
+        }
+
+        return out;
+    }
+
+    private List<VideoInfo> orderByTrackNoPreferPopularity(List<VideoInfo> videos) {
+        if (videos == null || videos.size() <= 2) {
+            return videos;
+        }
+        java.util.Map<Integer, VideoInfo> bestByTrack = new java.util.HashMap<>();
+        java.util.Set<String> inBest = new java.util.HashSet<>();
+
+        for (VideoInfo v : videos) {
+            if (v == null || v.getBvid() == null || v.getBvid().isBlank()) {
+                continue;
+            }
+            Integer tn = v.getTrackNo();
+            if (tn == null) {
+                tn = extractTrackNo(v);
+                v.setTrackNo(tn);
+            }
+            if (tn == null) {
+                continue;
+            }
+            VideoInfo prev = bestByTrack.get(tn);
+            if (prev == null) {
+                bestByTrack.put(tn, v);
+                continue;
+            }
+            long pPrev = prev.getPlayCount() != null ? prev.getPlayCount() : 0L;
+            long pNow = v.getPlayCount() != null ? v.getPlayCount() : 0L;
+            long cPrev = prev.getCommentCount() != null ? prev.getCommentCount() : 0L;
+            long cNow = v.getCommentCount() != null ? v.getCommentCount() : 0L;
+            if (pNow > pPrev || (pNow == pPrev && cNow > cPrev)) {
+                bestByTrack.put(tn, v);
+            }
+        }
+
+        if (bestByTrack.isEmpty()) {
+            return videos;
+        }
+
+        java.util.List<Integer> keys = new java.util.ArrayList<>(bestByTrack.keySet());
+        keys.sort(Integer::compareTo);
+        java.util.List<VideoInfo> out = new java.util.ArrayList<>(videos.size());
+        for (Integer k : keys) {
+            VideoInfo v = bestByTrack.get(k);
+            if (v != null) {
+                out.add(v);
+                inBest.add(v.getBvid());
+            }
+        }
+        for (VideoInfo v : videos) {
+            if (v == null || v.getBvid() == null || v.getBvid().isBlank()) {
+                continue;
+            }
+            if (!inBest.contains(v.getBvid())) {
+                out.add(v);
+            }
+        }
+        return out;
     }
 
     private List<VideoInfo> diversifyNoAdjacentSameAuthor(List<VideoInfo> videos,

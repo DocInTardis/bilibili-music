@@ -76,4 +76,26 @@ public class UserIntent {
      * 执行模式：default / low_cost 等
      */
     private String mode;
+
+    // ==================== Album intent (optional) ====================
+
+    /**
+     * Album title when user asks for a specific album.
+     */
+    private String albumTitle;
+
+    /**
+     * Album artist/singer (optional).
+     */
+    private String albumArtist;
+
+    /**
+     * Whether user wants tracks in album order.
+     */
+    private boolean albumOrder;
+
+    /**
+     * High-level request type: album / song / artist / radio (optional).
+     */
+    private String requestType;
 }

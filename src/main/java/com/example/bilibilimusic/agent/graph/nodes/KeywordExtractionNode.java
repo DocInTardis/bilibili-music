@@ -37,9 +37,11 @@ public class KeywordExtractionNode implements AgentNode {
         if (cachedKeywords != null && !cachedKeywords.isEmpty()) {
             log.info("[KeywordNode] 命中关键词缓存: {}", cachedKeywords);
             state.getIntent().setKeywords(cachedKeywords);
+            keywordExtractionSkill.enrichIntentFromHeuristics(state, query);
         } else {
             // 缓存未命中，调用Skill提取关键词
             keywordExtractionSkill.execute(state);
+            keywordExtractionSkill.enrichIntentFromHeuristics(state, query);
             
             // 缓存提取结果
             List<String> keywords = state.getIntent().getKeywords();
@@ -59,6 +61,10 @@ public class KeywordExtractionNode implements AgentNode {
         Map<String, Object> payload = new HashMap<>();
         payload.put("keywords", context.getIntent().getKeywords());
         payload.put("effectiveQuery", context.getIntent().getQuery());
+        payload.put("requestType", context.getIntent().getRequestType());
+        payload.put("albumTitle", context.getIntent().getAlbumTitle());
+        payload.put("albumArtist", context.getIntent().getAlbumArtist());
+        payload.put("albumOrder", context.getIntent().isAlbumOrder());
     
         com.example.bilibilimusic.dto.ChatMessage msg = com.example.bilibilimusic.dto.ChatMessage.builder()
             .type("stage_update")

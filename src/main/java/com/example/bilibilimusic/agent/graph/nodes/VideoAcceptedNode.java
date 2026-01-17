@@ -40,7 +40,9 @@ public class VideoAcceptedNode implements AgentNode {
         int targetCount = state.getIntent().getTargetCount();
 
         // 构建摘要
-        String summary = String.format("已添加：%s - %s（第%d首）",
+        String trackPrefix = video.getTrackNo() != null ? ("Track " + video.getTrackNo() + ": ") : "";
+        String summary = String.format("已添加：%s%s - %s（第%d首）",
+            trackPrefix,
             video.getTitle(),
             video.getAuthor() != null ? video.getAuthor() : "未知",
             accumulatedCount);

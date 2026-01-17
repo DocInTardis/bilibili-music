@@ -23,6 +23,15 @@ import java.util.regex.Matcher;
 @RequiredArgsConstructor
 @Slf4j
 public class KeywordExtractionSkill implements Skill {
+
+    private static final Pattern WHOLE_ALBUM_HINT =
+        Pattern.compile("(?i)(\\u5168\\u4e13\\u8f91|\\u6574\\u5f20|\\u5b8c\\u6574|full\\s*album|complete\\s*album)");
+    private static final Pattern ALBUM_ORDER_HINT =
+        Pattern.compile("(?i)(\\u6309\\u987a\\u5e8f|\\u987a\\u5e8f|\\u539f\\u987a\\u5e8f|in\\s*order|track\\s*order)");
+    private static final Pattern ALBUM_FROM_QUERY =
+        Pattern.compile("(?i)(?:\\u4e13\\u8f91|album)\\s*(?:\\u300a([^\\u300b]{1,40})\\u300b|\"([^\"]{1,40})\"|([\\p{IsHan}A-Za-z0-9\\s\\-]{2,40}))");
+    private static final Pattern ARTIST_ALBUM_PATTERN =
+        Pattern.compile("(?i)([\\p{IsHan}A-Za-z0-9\\s\\-]{1,24})\\s*\\u7684\\s*(?:\\u4e13\\u8f91|album)\\s*(?:\\u300a([^\\u300b]{1,40})\\u300b|\"([^\"]{1,40})\"|([\\p{IsHan}A-Za-z0-9\\s\\-]{2,40}))");
     
     private final WebClient ollamaWebClient;
     private final LlmBudgetService llmBudgetService;
@@ -87,6 +96,7 @@ public class KeywordExtractionSkill implements Skill {
                             
                 context.setKeywords(keywords);
                 context.getIntent().setKeywords(keywords);
+                enrichIntentFromHeuristics(context, originalQuery);
                             
                 log.info("[KeywordExtractionSkill] 最终关键词数组: {}", keywords);
                 return true;
@@ -125,6 +135,8 @@ public class KeywordExtractionSkill implements Skill {
                     context.getIntent().setTargetCount(result.getCount());
                     log.info("[KeywordExtractionSkill] 提取到数量: {}", result.getCount());
                 }
+                applyEntitiesToIntent(context, query, result);
+                ensureSearchLimit(context);
                 return extractedKeyword;
             }
             
@@ -137,7 +149,148 @@ public class KeywordExtractionSkill implements Skill {
         
         return query;
     }
-    
+
+    public void enrichIntentFromHeuristics(PlaylistContext context, String rawQuery) {
+        if (context == null || context.getIntent() == null) {
+            return;
+        }
+        String q = rawQuery != null ? rawQuery : context.getIntent().getQuery();
+        if (q == null) {
+            q = "";
+        }
+
+        java.util.Set<String> modeTags = parseModeTags(context.getIntent().getMode());
+
+        boolean orderHint = ALBUM_ORDER_HINT.matcher(q).find() || modeTags.contains("album_order");
+        if (orderHint) {
+            context.getIntent().setAlbumOrder(true);
+        }
+
+        boolean wholeAlbum = WHOLE_ALBUM_HINT.matcher(q).find() || modeTags.contains("whole_album");
+
+        if (context.getIntent().getAlbumTitle() == null || context.getIntent().getAlbumTitle().isBlank()) {
+            String album = null;
+            Matcher m = ARTIST_ALBUM_PATTERN.matcher(q);
+            if (m.find()) {
+                String artist = safeTrim(m.group(1));
+                album = firstNonBlank(safeTrim(m.group(2)), safeTrim(m.group(3)), safeTrim(m.group(4)));
+                if (artist != null && !artist.isBlank()
+                    && (context.getIntent().getAlbumArtist() == null || context.getIntent().getAlbumArtist().isBlank())) {
+                    context.getIntent().setAlbumArtist(artist);
+                }
+            } else {
+                Matcher m2 = ALBUM_FROM_QUERY.matcher(q);
+                if (m2.find()) {
+                    album = firstNonBlank(safeTrim(m2.group(1)), safeTrim(m2.group(2)), safeTrim(m2.group(3)));
+                }
+            }
+            if (album != null && !album.isBlank()) {
+                context.getIntent().setAlbumTitle(album);
+            }
+        }
+
+        if (context.getIntent().getAlbumTitle() != null && !context.getIntent().getAlbumTitle().isBlank()) {
+            if (context.getIntent().getRequestType() == null || context.getIntent().getRequestType().isBlank()) {
+                context.getIntent().setRequestType("album");
+            }
+            if (wholeAlbum && context.getIntent().getTargetCount() > 0 && context.getIntent().getTargetCount() < 12) {
+                context.getIntent().setTargetCount(12);
+            }
+        }
+
+        ensureSearchLimit(context);
+    }
+
+    private void applyEntitiesToIntent(PlaylistContext context, String rawQuery, KeywordResult result) {
+        if (context == null || context.getIntent() == null || result == null) {
+            return;
+        }
+        EntityInfo e = result.getEntities();
+        if (e == null) {
+            return;
+        }
+
+        String singer = safeTrim(e.getSinger());
+        String song = safeTrim(e.getSong());
+        String album = safeTrim(e.getAlbum());
+        String style = safeTrim(e.getStyle());
+        String scene = safeTrim(e.getScene());
+
+        if (singer != null && !singer.isBlank()) {
+            if (context.getIntent().getArtists() == null || context.getIntent().getArtists().isEmpty()) {
+                context.getIntent().setArtists(java.util.Collections.singletonList(singer));
+            }
+        }
+
+        if (album != null && !album.isBlank()) {
+            context.getIntent().setAlbumTitle(album);
+            if (context.getIntent().getAlbumArtist() == null || context.getIntent().getAlbumArtist().isBlank()) {
+                context.getIntent().setAlbumArtist(singer);
+            }
+            context.getIntent().setRequestType("album");
+            if (ALBUM_ORDER_HINT.matcher(rawQuery != null ? rawQuery : "").find()) {
+                context.getIntent().setAlbumOrder(true);
+            }
+        } else if (song != null && !song.isBlank()) {
+            if (context.getIntent().getRequestType() == null || context.getIntent().getRequestType().isBlank()) {
+                context.getIntent().setRequestType("song");
+            }
+        } else if (singer != null && !singer.isBlank()) {
+            if (context.getIntent().getRequestType() == null || context.getIntent().getRequestType().isBlank()) {
+                context.getIntent().setRequestType("artist");
+            }
+        }
+
+        if (style != null && !style.isBlank()) {
+            if (context.getIntent().getPreference() == null || context.getIntent().getPreference().isBlank()) {
+                context.getIntent().setPreference(style);
+            }
+            if (context.getIntent().getGenres() == null || context.getIntent().getGenres().isEmpty()) {
+                context.getIntent().setGenres(java.util.Collections.singletonList(style));
+            }
+        }
+
+        if (scene != null && !scene.isBlank()) {
+            if (context.getIntent().getScenario() == null || context.getIntent().getScenario().isBlank()) {
+                context.getIntent().setScenario(scene);
+            }
+        }
+
+        enrichIntentFromHeuristics(context, rawQuery);
+    }
+
+    private void ensureSearchLimit(PlaylistContext context) {
+        if (context == null || context.getIntent() == null) {
+            return;
+        }
+        int targetCount = context.getIntent().getTargetCount();
+        int currentLimit = context.getIntent().getLimit();
+        if (targetCount > 0) {
+            int desired = Math.max(targetCount * 2, 20);
+            if (currentLimit <= 0 || currentLimit < desired) {
+                context.getIntent().setLimit(desired);
+            }
+        } else if (currentLimit <= 0) {
+            context.getIntent().setLimit(50);
+        }
+    }
+
+    private String safeTrim(String s) {
+        if (s == null) return null;
+        String t = s.trim();
+        return t.isBlank() ? null : t;
+    }
+
+    private String firstNonBlank(String... parts) {
+        if (parts == null) return null;
+        for (String p : parts) {
+            if (p != null && !p.isBlank()) {
+                return p.trim();
+            }
+        }
+        return null;
+    }
+     
     private String getKeywordExtractionPrompt() {
         return """
             你是关键词提取器，**必须严格按照JSON格式输出**。

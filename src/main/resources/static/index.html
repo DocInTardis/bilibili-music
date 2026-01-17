@@ -642,6 +642,10 @@
                                 <option value="20">20</option>
                             </select>
                         </label>
+                        <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+                            <input type="checkbox" id="albumOrderToggle" style="margin-right: 4px;">
+                            <span style="font-size: 12px; color: rgba(255,255,255,0.85);">Album order</span>
+                        </label>
                         <label style="display:flex; align-items:center; gap:6px; flex:1;">
                             <span style="font-size: 12px; color: rgba(255,255,255,0.85);">Pref</span>
                             <input id="preferenceInput" type="text" placeholder="optional preference" style="flex:1; min-width:160px; font-size:12px; padding:2px 6px; border-radius:6px; border:1px solid rgba(255,255,255,0.25); background:rgba(0,0,0,0.2); color:#fff;" />
@@ -799,10 +803,15 @@
             // 添加到播放列表
             currentPlaylist.push(video);
             const newIndex = currentPlaylist.length - 1;
+            const parsedTrackNo = video && video.trackNo != null ? parseInt(String(video.trackNo), 10) : NaN;
+            const displayNo = Number.isFinite(parsedTrackNo) ? parsedTrackNo : (newIndex + 1);
 
             // 更新头部信息
-            document.getElementById('videoTitle').textContent = '正在构建播放列表...';
-            document.getElementById('videoSummary').textContent = `已找到 ${currentPlaylist.length} 个相关视频`;
+            const headerTitle = video && video.albumTitle ? `Album: ${video.albumTitle}` : '正在构建播放列表...';
+            document.getElementById('videoTitle').textContent = headerTitle;
+            document.getElementById('videoSummary').textContent = video && video.albumTitle
+                ? `Album playlist: ${currentPlaylist.length} tracks`
+                : `已找到 ${currentPlaylist.length} 个相关视频`;
             document.getElementById('playlistCount').textContent = `共 ${currentPlaylist.length} 首`;
 
             // 添加视频卡片到列表
@@ -821,7 +830,7 @@
             
             card.innerHTML = `
                 <div class="video-title">
-                    <span class="video-index">${newIndex + 1}</span>
+                    <span class="video-index">${displayNo}</span>
                     ${escapeHtml(video.title)}
                 </div>
                 <div class="video-meta">
@@ -1051,6 +1060,15 @@
             const video = currentPlaylist[index];
             isPlaying = true;
 
+            try {
+                const tn = video && video.trackNo != null ? parseInt(String(video.trackNo), 10) : NaN;
+                const tnText = Number.isFinite(tn) ? `#${tn} ` : '';
+                const title = video && video.title ? video.title : '';
+                const albumTitle = video && video.albumTitle ? video.albumTitle : '';
+                document.getElementById('videoTitle').textContent = albumTitle ? `Album: ${albumTitle}` : `${tnText}${title}`;
+                document.getElementById('videoSummary').textContent = `${tnText}${title}`;
+            } catch (e) {}
+
             // 更新选中状态
             const cards = document.querySelectorAll('.video-card');
             cards.forEach((card, i) => {
@@ -1098,7 +1116,12 @@
                 const modeEl = document.getElementById('runMode');
                 const limitEl = document.getElementById('resultLimit');
                 const prefEl = document.getElementById('preferenceInput');
-                const mode = modeEl ? (modeEl.value || '') : '';
+                const albumOrderEl = document.getElementById('albumOrderToggle');
+                const albumOrder = albumOrderEl ? !!albumOrderEl.checked : false;
+                let mode = modeEl ? (modeEl.value || '') : '';
+                if (albumOrder) {
+                    mode = mode ? `${mode}+album_order` : 'album_order';
+                }
                 const limit = limitEl ? parseInt(limitEl.value || '10', 10) : 10;
                 const preference = prefEl ? (prefEl.value || '').trim() : '';
                 const message = {
@@ -1158,10 +1181,15 @@
             let humanReadable = '';
             if (stage === 'INTENT_UNDERSTANDING') {
                 humanReadable = `🎯 目标：${payload.targetCount || 10}首歌曲`;
+                if (payload.albumTitle) humanReadable += ` | Album: ${payload.albumTitle}`;
+                if (payload.albumArtist) humanReadable += ` | Artist: ${payload.albumArtist}`;
+                if (payload.albumOrder) humanReadable += ` | Order: on`;
                 if (payload.preference) humanReadable += ` | 风格：${payload.preference}`;
             } else if (stage === 'KEYWORD_EXTRACTION') {
                 const kw = payload.keywords ? payload.keywords.join(', ') : '';
                 humanReadable = `🔑 关键词：${kw}`;
+                if (payload.albumTitle) humanReadable += ` | Album: ${payload.albumTitle}`;
+                if (payload.albumOrder) humanReadable += ` | Order: on`;
             } else if (stage === 'TARGET_EVALUATION') {
                 humanReadable = `✅ 已找到 ${payload.actualCount} 首 / 目标 ${payload.targetCount} 首`;
                 if (!payload.enough) {
