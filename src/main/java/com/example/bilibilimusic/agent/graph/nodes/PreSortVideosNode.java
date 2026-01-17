@@ -15,6 +15,9 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
@@ -87,10 +90,11 @@ public class PreSortVideosNode implements AgentNode {
             .thenComparing((VideoInfo v) -> v.getPlayCount() != null ? -v.getPlayCount() : 0L)
             .thenComparing((VideoInfo v) -> v.getCommentCount() != null ? -v.getCommentCount() : 0L);
         
-        List<VideoInfo> sorted = filtered.parallelStream()
+        List<VideoInfo> initialSorted = filtered.parallelStream()
             .sorted(comparator)
             .collect(Collectors.toList());
-        
+
+        List<VideoInfo> sorted = prefetchAndRerank(state, artistPrefs, keywordPrefs, initialSorted);
         state.setSearchResults(sorted);
         
         // 初始化循环控制字段
@@ -100,24 +104,23 @@ public class PreSortVideosNode implements AgentNode {
         state.setShouldContinue(true);
 
         // 并行预热：提前把“相关性评分结果”写入缓存，降低后续逐个判断的总耗时
-        prefetchScoringCache(state, artistPrefs, keywordPrefs, sorted);
-        
         return NodeResult.success("content_analysis");
     }
 
-    private void prefetchScoringCache(PlaylistContext state,
+    private List<VideoInfo> prefetchAndRerank(PlaylistContext state,
                                       Map<String, Integer> artistPrefs,
                                       Map<String, Integer> keywordPrefs,
                                       List<VideoInfo> sortedVideos) {
         boolean enabled = agentPrefetchConfig != null && agentPrefetchConfig.isScoringEnabled();
         int maxVideos = agentPrefetchConfig != null ? agentPrefetchConfig.getScoringMaxVideos() : 0;
         if (!enabled || sortedVideos == null || sortedVideos.isEmpty() || maxVideos <= 0) {
-            return;
+            return sortedVideos;
         }
 
         int limit = Math.min(maxVideos, sortedVideos.size());
         List<VideoInfo> slice = sortedVideos.subList(0, limit);
         long start = System.currentTimeMillis();
+        Map<String, VideoRelevanceScorer.ScoringResult> results = new ConcurrentHashMap<>();
         try {
             slice.parallelStream().forEach(v -> {
                 if (v == null || v.getBvid() == null || v.getBvid().isBlank()) {
@@ -125,6 +128,7 @@ public class PreSortVideosNode implements AgentNode {
                 }
                 VideoRelevanceScorer.ScoringResult scoringResult =
                     relevanceScorer.scoreVideo(v, state.getIntent(), artistPrefs, keywordPrefs, state.getConversationId(), state.getUserId());
+                results.put(v.getBvid(), scoringResult);
                 cacheService.cacheLLMJudgement(v.getBvid(), state.getIntent(), scoringResult);
             });
         } catch (Exception e) {
@@ -133,6 +137,106 @@ public class PreSortVideosNode implements AgentNode {
             long cost = System.currentTimeMillis() - start;
             log.info("[PreSort] 评分缓存预热完成: videos={}, cost={}ms", limit, cost);
         }
+        if (results.isEmpty()) {
+            return sortedVideos;
+        }
+
+        List<VideoInfo> rerankedSlice = slice.stream()
+            .filter(v -> v != null && v.getBvid() != null && !v.getBvid().isBlank())
+            .sorted(Comparator
+                .comparingInt((VideoInfo v) -> {
+                    VideoRelevanceScorer.ScoringResult r = results.get(v.getBvid());
+                    return r != null ? -r.getScore() : Integer.MAX_VALUE;
+                })
+                .thenComparing((VideoInfo v) -> isPlaylistStyle(v))
+                .thenComparing((VideoInfo v) -> v.getPlayCount() != null ? -v.getPlayCount() : 0L)
+                .thenComparing((VideoInfo v) -> v.getCommentCount() != null ? -v.getCommentCount() : 0L)
+            )
+            .toList();
+
+        rerankedSlice = diversifyNoAdjacentSameAuthor(rerankedSlice, results);
+
+        List<VideoInfo> out = new ArrayList<>(sortedVideos.size());
+        out.addAll(rerankedSlice);
+        for (int i = limit; i < sortedVideos.size(); i++) {
+            out.add(sortedVideos.get(i));
+        }
+
+        return deduplicateByBvidPreserveOrder(out);
+    }
+
+    private List<VideoInfo> diversifyNoAdjacentSameAuthor(List<VideoInfo> videos,
+                                                          Map<String, VideoRelevanceScorer.ScoringResult> results) {
+        if (videos == null || videos.size() <= 2) {
+            return videos;
+        }
+        List<VideoInfo> remaining = new ArrayList<>(videos);
+        List<VideoInfo> out = new ArrayList<>(videos.size());
+        String lastAuthor = null;
+        while (!remaining.isEmpty()) {
+            int bestIdx = -1;
+            int bestScore = Integer.MIN_VALUE;
+            for (int i = 0; i < remaining.size(); i++) {
+                VideoInfo v = remaining.get(i);
+                String author = normalizeAuthor(v != null ? v.getAuthor() : null);
+                boolean ok = lastAuthor == null || author == null || !author.equals(lastAuthor);
+                if (!ok) {
+                    continue;
+                }
+                int score = scoreOf(v, results);
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestIdx = i;
+                }
+            }
+            if (bestIdx < 0) {
+                for (int i = 0; i < remaining.size(); i++) {
+                    VideoInfo v = remaining.get(i);
+                    int score = scoreOf(v, results);
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestIdx = i;
+                    }
+                }
+            }
+            VideoInfo picked = remaining.remove(bestIdx);
+            out.add(picked);
+            lastAuthor = normalizeAuthor(picked != null ? picked.getAuthor() : null);
+        }
+        return out;
+    }
+
+    private int scoreOf(VideoInfo v, Map<String, VideoRelevanceScorer.ScoringResult> results) {
+        if (v == null || v.getBvid() == null) {
+            return Integer.MIN_VALUE;
+        }
+        VideoRelevanceScorer.ScoringResult r = results.get(v.getBvid());
+        return r != null ? r.getScore() : Integer.MIN_VALUE;
+    }
+
+    private String normalizeAuthor(String author) {
+        if (author == null) {
+            return null;
+        }
+        String s = author.trim().toLowerCase();
+        return s.isBlank() ? null : s;
+    }
+
+    private List<VideoInfo> deduplicateByBvidPreserveOrder(List<VideoInfo> videos) {
+        if (videos == null || videos.isEmpty()) {
+            return videos;
+        }
+        Set<String> seen = new HashSet<>();
+        List<VideoInfo> out = new ArrayList<>(videos.size());
+        for (VideoInfo v : videos) {
+            if (v == null || v.getBvid() == null || v.getBvid().isBlank()) {
+                continue;
+            }
+            if (seen.add(v.getBvid())) {
+                out.add(v);
+            }
+        }
+        return out;
     }
 
     private boolean isPlaylistStyle(VideoInfo video) {

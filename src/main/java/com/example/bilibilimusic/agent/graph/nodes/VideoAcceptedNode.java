@@ -73,6 +73,7 @@ public class VideoAcceptedNode implements AgentNode {
         payload.put("author", video.getAuthor());
         payload.put("duration", video.getDuration());
         payload.put("progress", String.format("%d/%d", accumulatedCount, targetCount));
+        payload.put("decision", state.getLastDecisionInfo());
 
         com.example.bilibilimusic.dto.ChatMessage msg = com.example.bilibilimusic.dto.ChatMessage.builder()
             .type("video_accepted")

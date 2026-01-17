@@ -89,6 +89,12 @@ public class RelevanceDecisionNode implements AgentNode {
         Map<String, Object> decisionInfo = new HashMap<>();
         decisionInfo.put("accepted", accepted);
         decisionInfo.put("score", score);
+        decisionInfo.put("baseScore", scoringResult.getBaseScore());
+        decisionInfo.put("modelAdjustment", scoringResult.getModelAdjustment());
+        decisionInfo.put("variant", scoringResult.getVariant());
+        decisionInfo.put("modelName", scoringResult.getModelName());
+        decisionInfo.put("modelVersion", scoringResult.getModelVersion());
+        decisionInfo.put("modelProbability", scoringResult.getModelProbability());
         decisionInfo.put("reason", decisionReason);
         state.setLastDecisionInfo(decisionInfo);
         
