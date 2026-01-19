@@ -41,9 +41,12 @@ mybatis-plus:
 
 ollama:
   base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
-  model: ${OLLAMA_MODEL:qwen:7b}
+  model: ${OLLAMA_MODEL:qwen2.5:7b}
+  judge-models: ${OLLAMA_JUDGE_MODELS:qwen2.5:7b,qwen2.5:3b,qwen2.5:1.5b}
+  judge-quorum: ${OLLAMA_JUDGE_QUORUM:0}
+  judge-timeout-ms: ${OLLAMA_JUDGE_TIMEOUT_MS:8000}
   embeddings-enabled: ${OLLAMA_EMBEDDINGS_ENABLED:false}
-  embedding-model: ${OLLAMA_EMBED_MODEL:nomic-embed-text}
+  embedding-model: ${OLLAMA_EMBED_MODEL:bge-m3:latest}
 
 bilibili:
   search-url-template: "https://search.bilibili.com/all?keyword={query}&from_source=webtop_search&spm_id_from=333.1007&search_source=3"

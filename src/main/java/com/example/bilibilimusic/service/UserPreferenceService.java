@@ -4,14 +4,15 @@ import com.example.bilibilimusic.entity.UserPreference;
 import com.example.bilibilimusic.mapper.UserPreferenceMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
-import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 用户偏好服务 - 记录和学习用户偏好（同步到 Redis）
@@ -24,6 +25,12 @@ public class UserPreferenceService {
     private final UserPreferenceMapper preferenceMapper;
     private final CacheService cacheService;
     private final PreferenceDecayService decayService;
+
+    @Value("${DB_ENABLED:true}")
+    private boolean dbEnabled;
+
+    private final AtomicBoolean dbAvailable = new AtomicBoolean(true);
+    private final AtomicBoolean dbFailureLogged = new AtomicBoolean(false);
     
     // 序列特征参数：最近 N 次交互窗口与增益系数
     private static final int SEQUENTIAL_WINDOW = 5;
@@ -64,34 +71,43 @@ public class UserPreferenceService {
         if (deltaWeight == 0) {
             return;
         }
-        UserPreference existing = preferenceMapper.findByConversationAndTypeAndTarget(conversationId, type, target);
-            
-        if (existing != null) {
-            int oldWeight = existing.getWeightScore() != null ? existing.getWeightScore() : 0;
-            int newWeight = oldWeight + deltaWeight;
-            existing.setWeightScore(newWeight);
-            existing.setInteractionCount(existing.getInteractionCount() + 1);
-            existing.setLastUpdated(LocalDateTime.now());
-            preferenceMapper.updateById(existing);
-            log.debug("[Preference] 更新偏好: {} {} (权重: {} -> {})", 
-                type, target, oldWeight, newWeight);
-        } else {
-            // 创建新偏好（允许负权重，表示强烈不喜欢）
-            UserPreference newPref = UserPreference.builder()
-                .conversationId(conversationId)
-                .preferenceType(type)
-                .preferenceTarget(target)
-                .weightScore(deltaWeight)
-                .interactionCount(1)
-                .createdAt(LocalDateTime.now())
-                .lastUpdated(LocalDateTime.now())
-                .build();
-            preferenceMapper.insert(newPref);
-            log.debug("[Preference] 新增偏好: {} {} (权重: {})", type, target, deltaWeight);
+        if (!isDbUsable()) {
+            cacheService.incrementPreference(conversationId, type, target, deltaWeight);
+            return;
         }
-            
-        // 同步到 Redis ZSet，支持负向增量
-        cacheService.incrementPreference(conversationId, type, target, deltaWeight);
+
+        try {
+            UserPreference existing = preferenceMapper.findByConversationAndTypeAndTarget(conversationId, type, target);
+
+            if (existing != null) {
+                int oldWeight = existing.getWeightScore() != null ? existing.getWeightScore() : 0;
+                int newWeight = oldWeight + deltaWeight;
+                existing.setWeightScore(newWeight);
+                existing.setInteractionCount(existing.getInteractionCount() + 1);
+                existing.setLastUpdated(LocalDateTime.now());
+                preferenceMapper.updateById(existing);
+                log.debug("[Preference] ????: {} {} (??: {} -> {})",
+                    type, target, oldWeight, newWeight);
+            } else {
+                // ????????????????????
+                UserPreference newPref = UserPreference.builder()
+                    .conversationId(conversationId)
+                    .preferenceType(type)
+                    .preferenceTarget(target)
+                    .weightScore(deltaWeight)
+                    .interactionCount(1)
+                    .createdAt(LocalDateTime.now())
+                    .lastUpdated(LocalDateTime.now())
+                    .build();
+                preferenceMapper.insert(newPref);
+                log.debug("[Preference] ????: {} {} (??: {})", type, target, deltaWeight);
+            }
+        } catch (Exception e) {
+            markDbFailed("adjustPreference", e);
+        } finally {
+            // ??? Redis ZSet???????
+            cacheService.incrementPreference(conversationId, type, target, deltaWeight);
+        }
     }
         
     /**
@@ -99,112 +115,202 @@ public class UserPreferenceService {
      * @return Map<type:target, weight>
      */
     public Map<String, Integer> getPreferenceWeights(Long conversationId) {
-        List<UserPreference> preferences = preferenceMapper.findByConversationId(conversationId);
-        Map<String, Integer> weights = new HashMap<>();
-                
-        for (UserPreference pref : preferences) {
-            String key = pref.getPreferenceType() + ":" + pref.getPreferenceTarget();
-            long halfLife = decayService.getRecommendedHalfLife(pref.getPreferenceType());
-            double decayed = decayService.calculateDecayedWeight(pref.getWeightScore(), pref.getLastUpdated(), halfLife);
-            weights.put(key, (int) Math.round(decayed));
+        if (!isDbUsable()) {
+            return getCachedPreferenceWeights(conversationId);
         }
-                
-        return weights;
+        try {
+            List<UserPreference> preferences = preferenceMapper.findByConversationId(conversationId);
+            Map<String, Integer> weights = new HashMap<>();
+
+            for (UserPreference pref : preferences) {
+                String key = pref.getPreferenceType() + ":" + pref.getPreferenceTarget();
+                long halfLife = decayService.getRecommendedHalfLife(pref.getPreferenceType());
+                double decayed = decayService.calculateDecayedWeight(pref.getWeightScore(), pref.getLastUpdated(), halfLife);
+                weights.put(key, (int) Math.round(decayed));
+            }
+
+            return weights;
+        } catch (Exception e) {
+            markDbFailed("getPreferenceWeights", e);
+            return getCachedPreferenceWeights(conversationId);
+        }
     }
         
     /**
      * 获取用户维度的所有偏好权重映射（跨会话聚合）
      */
     public Map<String, Integer> getUserPreferenceWeights(Long userId) {
-        List<UserPreference> preferences = preferenceMapper.findByUserId(userId);
-        Map<String, Integer> weights = new HashMap<>();
-        for (UserPreference pref : preferences) {
-            String key = pref.getPreferenceType() + ":" + pref.getPreferenceTarget();
-            long halfLife = decayService.getRecommendedHalfLife(pref.getPreferenceType());
-            double decayed = decayService.calculateDecayedWeight(pref.getWeightScore(), pref.getLastUpdated(), halfLife);
-            weights.put(key, (int) Math.round(decayed));
+        if (!isDbUsable()) {
+            return new HashMap<>();
         }
-        return weights;
+        try {
+            List<UserPreference> preferences = preferenceMapper.findByUserId(userId);
+            Map<String, Integer> weights = new HashMap<>();
+            for (UserPreference pref : preferences) {
+                String key = pref.getPreferenceType() + ":" + pref.getPreferenceTarget();
+                long halfLife = decayService.getRecommendedHalfLife(pref.getPreferenceType());
+                double decayed = decayService.calculateDecayedWeight(pref.getWeightScore(), pref.getLastUpdated(), halfLife);
+                weights.put(key, (int) Math.round(decayed));
+            }
+            return weights;
+        } catch (Exception e) {
+            markDbFailed("getUserPreferenceWeights", e);
+            return new HashMap<>();
+        }
     }
             
     /**
      * 获取艺人偏好权重
      */
     public Map<String, Integer> getArtistPreferences(Long conversationId) {
-        List<UserPreference> preferences = preferenceMapper.findByConversationIdAndType(conversationId, "artist");
-        Map<String, Integer> weights = new HashMap<>();
-                
-        for (UserPreference pref : preferences) {
-            long halfLife = decayService.getRecommendedHalfLife("artist");
-            double decayed = decayService.calculateDecayedWeight(pref.getWeightScore(), pref.getLastUpdated(), halfLife);
-            weights.put(pref.getPreferenceTarget(), (int) Math.round(decayed));
+        if (!isDbUsable()) {
+            return cacheService.getArtistPreferences(conversationId);
         }
-                
-        return weights;
+        try {
+            List<UserPreference> preferences = preferenceMapper.findByConversationIdAndType(conversationId, "artist");
+            Map<String, Integer> weights = new HashMap<>();
+
+            for (UserPreference pref : preferences) {
+                long halfLife = decayService.getRecommendedHalfLife("artist");
+                double decayed = decayService.calculateDecayedWeight(pref.getWeightScore(), pref.getLastUpdated(), halfLife);
+                weights.put(pref.getPreferenceTarget(), (int) Math.round(decayed));
+            }
+
+            return weights;
+        } catch (Exception e) {
+            markDbFailed("getArtistPreferences", e);
+            return cacheService.getArtistPreferences(conversationId);
+        }
     }
         
     /**
      * 获取用户维度的艺人偏好权重（跨会话聚合）
      */
     public Map<String, Integer> getUserArtistPreferences(Long userId) {
-        List<UserPreference> preferences = preferenceMapper.findByUserIdAndType(userId, "artist");
-        Map<String, Integer> weights = new HashMap<>();
-        for (UserPreference pref : preferences) {
-            long halfLife = decayService.getRecommendedHalfLife("artist");
-            double decayed = decayService.calculateDecayedWeight(pref.getWeightScore(), pref.getLastUpdated(), halfLife);
-            weights.put(pref.getPreferenceTarget(), (int) Math.round(decayed));
+        if (!isDbUsable()) {
+            return new HashMap<>();
         }
-        return weights;
+        try {
+            List<UserPreference> preferences = preferenceMapper.findByUserIdAndType(userId, "artist");
+            Map<String, Integer> weights = new HashMap<>();
+            for (UserPreference pref : preferences) {
+                long halfLife = decayService.getRecommendedHalfLife("artist");
+                double decayed = decayService.calculateDecayedWeight(pref.getWeightScore(), pref.getLastUpdated(), halfLife);
+                weights.put(pref.getPreferenceTarget(), (int) Math.round(decayed));
+            }
+            return weights;
+        } catch (Exception e) {
+            markDbFailed("getUserArtistPreferences", e);
+            return new HashMap<>();
+        }
     }
             
     /**
      * 获取关键词偏好权重
      */
     public Map<String, Integer> getKeywordPreferences(Long conversationId) {
-        List<UserPreference> preferences = preferenceMapper.findByConversationIdAndType(conversationId, "keyword");
-        Map<String, Integer> weights = new HashMap<>();
-            
-        for (UserPreference pref : preferences) {
-            long halfLife = decayService.getRecommendedHalfLife("keyword");
-            double decayed = decayService.calculateDecayedWeight(pref.getWeightScore(), pref.getLastUpdated(), halfLife);
-            weights.put(pref.getPreferenceTarget(), (int) Math.round(decayed));
+        if (!isDbUsable()) {
+            return cacheService.getKeywordPreferences(conversationId);
         }
-            
-        return weights;
+        try {
+            List<UserPreference> preferences = preferenceMapper.findByConversationIdAndType(conversationId, "keyword");
+            Map<String, Integer> weights = new HashMap<>();
+
+            for (UserPreference pref : preferences) {
+                long halfLife = decayService.getRecommendedHalfLife("keyword");
+                double decayed = decayService.calculateDecayedWeight(pref.getWeightScore(), pref.getLastUpdated(), halfLife);
+                weights.put(pref.getPreferenceTarget(), (int) Math.round(decayed));
+            }
+
+            return weights;
+        } catch (Exception e) {
+            markDbFailed("getKeywordPreferences", e);
+            return cacheService.getKeywordPreferences(conversationId);
+        }
     }
         
     /**
      * 获取用户维度的关键词偏好权重（跨会话聚合）
      */
     public Map<String, Integer> getUserKeywordPreferences(Long userId) {
-        List<UserPreference> preferences = preferenceMapper.findByUserIdAndType(userId, "keyword");
-        Map<String, Integer> weights = new HashMap<>();
-        for (UserPreference pref : preferences) {
-            long halfLife = decayService.getRecommendedHalfLife("keyword");
-            double decayed = decayService.calculateDecayedWeight(pref.getWeightScore(), pref.getLastUpdated(), halfLife);
-            weights.put(pref.getPreferenceTarget(), (int) Math.round(decayed));
+        if (!isDbUsable()) {
+            return new HashMap<>();
         }
-        return weights;
+        try {
+            List<UserPreference> preferences = preferenceMapper.findByUserIdAndType(userId, "keyword");
+            Map<String, Integer> weights = new HashMap<>();
+            for (UserPreference pref : preferences) {
+                long halfLife = decayService.getRecommendedHalfLife("keyword");
+                double decayed = decayService.calculateDecayedWeight(pref.getWeightScore(), pref.getLastUpdated(), halfLife);
+                weights.put(pref.getPreferenceTarget(), (int) Math.round(decayed));
+            }
+            return weights;
+        } catch (Exception e) {
+            markDbFailed("getUserKeywordPreferences", e);
+            return new HashMap<>();
+        }
     }
     
     /**
      * 获取会话维度的所有偏好记录（不包含衰减）
      */
     public List<UserPreference> getAllPreferences(Long conversationId) {
-        return preferenceMapper.findByConversationId(conversationId);
+        if (!isDbUsable()) {
+            return java.util.Collections.emptyList();
+        }
+        try {
+            return preferenceMapper.findByConversationId(conversationId);
+        } catch (Exception e) {
+            markDbFailed("getAllPreferences", e);
+            return java.util.Collections.emptyList();
+        }
     }
     
     /**
      * 获取用户维度的所有偏好记录（跨会话聚合，不包含衰减）
      */
     public List<UserPreference> getAllUserPreferences(Long userId) {
-        return preferenceMapper.findByUserId(userId);
+        if (!isDbUsable()) {
+            return java.util.Collections.emptyList();
+        }
+        try {
+            return preferenceMapper.findByUserId(userId);
+        } catch (Exception e) {
+            markDbFailed("getAllUserPreferences", e);
+            return java.util.Collections.emptyList();
+        }
     }
     
     /**
      * 在衰减权重基础上叠加简单的“序列感”特征
      * 结合交互次数（频率）和最近一次交互时间（新鲜度），近似最近 N 次会话频率
      */
+    private boolean isDbUsable() {
+        return dbEnabled && dbAvailable.get();
+    }
+
+    private void markDbFailed(String op, Exception e) {
+        dbAvailable.set(false);
+        if (dbFailureLogged.compareAndSet(false, true)) {
+            log.warn("[Preference] DB unavailable, fallback to cache. op={}, reason={}", op, e != null ? e.getMessage() : "unknown");
+        } else {
+            log.debug("[Preference] op={} failed: {}", op, e != null ? e.getMessage() : "unknown");
+        }
+    }
+
+    private Map<String, Integer> getCachedPreferenceWeights(Long conversationId) {
+        Map<String, Integer> out = new HashMap<>();
+        Map<String, Integer> artist = cacheService.getArtistPreferences(conversationId);
+        Map<String, Integer> keyword = cacheService.getKeywordPreferences(conversationId);
+        for (Map.Entry<String, Integer> e : artist.entrySet()) {
+            out.put("artist:" + e.getKey(), e.getValue());
+        }
+        for (Map.Entry<String, Integer> e : keyword.entrySet()) {
+            out.put("keyword:" + e.getKey(), e.getValue());
+        }
+        return out;
+    }
+
     private double applySequentialBoost(UserPreference pref, double decayed) {
         if (pref == null || pref.getLastUpdated() == null) {
             return decayed;

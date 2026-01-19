@@ -51,17 +51,27 @@ public class OllamaService {
                        String userPrompt,
                        boolean enableCache,
                        long timeoutMs) {
+        return chatWithModel(nodeName, systemPrompt, userPrompt, enableCache, timeoutMs, model);
+    }
+
+    public String chatWithModel(String nodeName,
+                                String systemPrompt,
+                                String userPrompt,
+                                boolean enableCache,
+                                long timeoutMs,
+                                String overrideModel) {
+        String effectiveModel = (overrideModel != null && !overrideModel.isBlank()) ? overrideModel : model;
         String version = promptVersionService.getCurrentVersion(nodeName);
         String cacheKey = null;
         if (enableCache) {
             cacheKey = cacheService.buildPromptCacheKey(nodeName, version, userPrompt);
             String cached = cacheService.getCachedPromptResult(cacheKey);
             if (cached != null) {
-                log.debug("[OllamaService] 命中 Prompt 结果缓存: node={}, version={}", nodeName, version);
+                log.debug("[OllamaService] ?? Prompt ????: node={}, version={}", nodeName, version);
                 llmTelemetryService.recordChatCall(
                     nodeName,
                     version,
-                    model,
+                    effectiveModel,
                     true,
                     true,
                     0L,
@@ -69,7 +79,7 @@ public class OllamaService {
                     estimateTokens(cached)
                 );
                 if (observabilityMetrics != null) {
-                    observabilityMetrics.recordLlmCall(nodeName, version, model, true, true, 0L);
+                    observabilityMetrics.recordLlmCall(nodeName, version, effectiveModel, true, true, 0L);
                 }
                 return cached;
             }
@@ -79,25 +89,25 @@ public class OllamaService {
         String content = null;
         boolean success = false;
         try {
-            content = ollamaChatClient.chat(nodeName, version, model, systemPrompt, userPrompt, timeoutMs);
+            content = ollamaChatClient.chat(nodeName, version, effectiveModel, systemPrompt, userPrompt, timeoutMs);
             success = content != null && !content.isBlank();
         } catch (Exception e) {
-            log.error("[OllamaService] 调用 LLM 失败: node={}", nodeName, e);
+            log.error("[OllamaService] ?? LLM ??: node={}", nodeName, e);
         } finally {
             long duration = System.currentTimeMillis() - start;
-            // 简单估算 Token 与成本（以字符数 / 4 近似 Token 数）
+            // ???? Token ???????? / 4 ?? Token ??
             int promptTokens = estimateTokens(systemPrompt) + estimateTokens(userPrompt);
             int completionTokens = estimateTokens(content);
             int totalTokens = promptTokens + completionTokens;
-            double costPerThousand = 0.0; // 如需精确成本，可通过配置注入
+            double costPerThousand = 0.0; // ??????????????
             double estimatedCost = totalTokens / 1000.0 * costPerThousand;
-            log.info("[LLM] node={} version={} tokens(p/c/t)={}/{}/{} duration={}ms cost≈{}",
+            log.info("[LLM] node={} version={} tokens(p/c/t)={}/{}/{} duration={}ms cost?{}",
                 nodeName, version, promptTokens, completionTokens, totalTokens, duration, estimatedCost);
 
             llmTelemetryService.recordChatCall(
                 nodeName,
                 version,
-                model,
+                effectiveModel,
                 false,
                 success,
                 duration,
@@ -106,7 +116,7 @@ public class OllamaService {
             );
 
             if (observabilityMetrics != null) {
-                observabilityMetrics.recordLlmCall(nodeName, version, model, false, success, duration);
+                observabilityMetrics.recordLlmCall(nodeName, version, effectiveModel, false, success, duration);
             }
         }
 

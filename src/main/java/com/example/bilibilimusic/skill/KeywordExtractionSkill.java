@@ -556,6 +556,9 @@ public class KeywordExtractionSkill implements Skill {
             
         // 3. 移除明确的动词短语（在开头）- 一次性移除整个短语
         String step3 = cleaned;
+        if (step3.startsWith("\u6765")) {
+            step3 = step3.substring(1);
+        }
         // 先尝试匹配长短语
         if (step3.startsWith("帮我找点")) {
             step3 = step3.substring(4);  // 移除"帮我找点"

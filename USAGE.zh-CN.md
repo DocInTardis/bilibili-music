@@ -25,7 +25,7 @@ Get-Content backup.sql | docker compose -f docker-compose.dev.yml exec -T mysql 
 ### 2) 启动 Ollama（本地模型）
 
 ```powershell
-ollama pull qwen:7b
+ollama pull qwen2.5:7b
 ollama serve
 ```
 
@@ -48,7 +48,7 @@ mvn spring-boot:run
 
 - MySQL：`MYSQL_URL` / `MYSQL_USERNAME` / `MYSQL_PASSWORD`
 - Redis：`REDIS_HOST` / `REDIS_PORT` / `REDIS_DB` / `REDIS_PASSWORD`
-- Ollama：`OLLAMA_BASE_URL` / `OLLAMA_MODEL`
+- Ollama：`OLLAMA_BASE_URL` / `OLLAMA_MODEL` / `OLLAMA_JUDGE_MODELS`
 - Online learning：`ONLINE_LEARNING_ENABLED` / `ONLINE_LEARNING_TREATMENT_RATIO` / `ONLINE_LEARNING_TRAINING_ENABLED`
 
 ## 相关文档

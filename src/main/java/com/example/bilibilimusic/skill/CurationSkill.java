@@ -17,6 +17,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
 /**
@@ -45,6 +48,15 @@ public class CurationSkill implements Skill {
     
     @Value("${ollama.model}")
     private String model;
+
+    @Value("${ollama.judge-models:}")
+    private String judgeModels;
+
+    @Value("${ollama.judge-quorum:0}")
+    private int judgeQuorum;
+
+    @Value("${ollama.judge-timeout-ms:8000}")
+    private long judgeTimeoutMs;
     
     // 评分阈值配置（可自适应调整）
     private int minScoreThreshold = 3;  // 最低接受分数（目前未直接使用，预留）
@@ -184,7 +196,7 @@ public class CurationSkill implements Skill {
             java.util.Set<String> modeTags = parseModeTags(mode);
             boolean lowCost = modeTags.contains("low_cost");
             if (lowCost) {
-                log.info("[CurationSkill] 低成本模式：跳过 LLM 边界判断，默认拒绝边界视频: {}", video.getTitle());
+                log.info("[CurationSkill] ???????? LLM ?????????????: {}", video.getTitle());
                 return false;
             }
             String prompt = ptqPromptService.buildJudgementPrompt(video, intent);
@@ -193,20 +205,106 @@ public class CurationSkill implements Skill {
             if (systemPrompt == null || systemPrompt.isBlank()) {
                 systemPrompt = getJudgementSystemPrompt();
             }
-            String content = ollamaService.chat("relevance_decision", systemPrompt, prompt, false, 8_000L);
-            if (content == null || content.isBlank()) {
-                return false;
+
+            List<String> models = resolveJudgeModels();
+            if (models.isEmpty()) {
+                models = List.of(model);
             }
-            
-            // 解析结果：包含"accept" 或 "true"
-            String lowerContent = content.toLowerCase();
-            return lowerContent.contains("accept") || lowerContent.contains("true") || lowerContent.contains("接受");
+            if (models.size() == 1) {
+                return judgeWithSingleModel(models.get(0), systemPrompt, prompt);
+            }
+            return judgeWithMultipleModels(models, systemPrompt, prompt);
         } catch (Exception e) {
-            log.error("[CurationSkill] LLM判断失败", e);
+            log.error("[CurationSkill] LLM????", e);
         }
-        
-        // LLM失败时，默认拒绝
+
+        // LLM????????
         return false;
+    }
+
+    private boolean judgeWithSingleModel(String modelName, String systemPrompt, String prompt) {
+        ModelVote vote = judgeWithModelVote(modelName, systemPrompt, prompt);
+        return vote.accept != null && vote.accept;
+    }
+
+    private boolean judgeWithMultipleModels(List<String> models, String systemPrompt, String prompt) {
+        int poolSize = Math.min(models.size(), 3);
+        ExecutorService executor = Executors.newFixedThreadPool(poolSize);
+        try {
+            List<CompletableFuture<ModelVote>> futures = new ArrayList<>();
+            for (String m : models) {
+                futures.add(CompletableFuture.supplyAsync(() -> judgeWithModelVote(m, systemPrompt, prompt), executor));
+            }
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
+            int accept = 0;
+            int reject = 0;
+            int unknown = 0;
+            for (CompletableFuture<ModelVote> f : futures) {
+                ModelVote vote = f.join();
+                if (vote.accept == null) {
+                    unknown++;
+                } else if (vote.accept) {
+                    accept++;
+                } else {
+                    reject++;
+                }
+            }
+
+            int quorum = judgeQuorum > 0 ? judgeQuorum : (models.size() / 2 + 1);
+            boolean decision = accept >= quorum;
+            log.info("[CurationSkill] ?????: accept={}, reject={}, unknown={}, quorum={}, models={}",
+                accept, reject, unknown, quorum, models);
+            return decision;
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    private ModelVote judgeWithModelVote(String modelName, String systemPrompt, String prompt) {
+        String content = ollamaService.chatWithModel("relevance_decision", systemPrompt, prompt, false, judgeTimeoutMs, modelName);
+        Boolean decision = parseDecision(content);
+        if (decision == null) {
+            log.debug("[CurationSkill] LLM???????: model={}, content={}", modelName, content);
+        }
+        return new ModelVote(modelName, decision, content);
+    }
+
+    private Boolean parseDecision(String content) {
+        if (content == null || content.isBlank()) {
+            return null;
+        }
+        String lower = content.toLowerCase();
+        if (lower.contains("accept") || lower.contains("true") || lower.contains("??")) {
+            return Boolean.TRUE;
+        }
+        if (lower.contains("reject") || lower.contains("false") || lower.contains("??")) {
+            return Boolean.FALSE;
+        }
+        return null;
+    }
+
+    private List<String> resolveJudgeModels() {
+        if (judgeModels == null || judgeModels.isBlank()) {
+            return new ArrayList<>();
+        }
+        return Arrays.stream(judgeModels.split("[,;|]"))
+            .map(String::trim)
+            .filter(s -> !s.isEmpty())
+            .distinct()
+            .collect(Collectors.toList());
+    }
+
+    private static class ModelVote {
+        private final String model;
+        private final Boolean accept;
+        private final String raw;
+
+        private ModelVote(String model, Boolean accept, String raw) {
+            this.model = model;
+            this.accept = accept;
+            this.raw = raw;
+        }
     }
     
     private java.util.Set<String> parseModeTags(String mode) {

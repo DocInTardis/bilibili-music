@@ -4,7 +4,7 @@
 
 ✅ **分屏界面**：左侧嵌入 B 站页面，右侧智能对话框
 ✅ **智能搜索**：基于 Playwright 自动在 B 站搜索音乐视频
-✅ **AI 推荐**：本地 Ollama qwen:7b 模型生成歌单推荐
+✅ **AI 推荐**：本地 Ollama qwen2.5:7b 模型生成歌单推荐
 ✅ **实时交互**：WebSocket 实时推送搜索状态
 
 ## 快速开始
@@ -13,13 +13,13 @@
 
 - Java 17+
 - Maven 3.6+
-- Ollama (本地运行 qwen:7b 模型)
+- Ollama (本地运行 qwen2.5:7b 模型)
 
 ### 2. 启动 Ollama
 
 ```powershell
 # 拉取模型（首次使用）
-ollama pull qwen:7b
+ollama pull qwen2.5:7b
 
 # 启动 Ollama 服务
 ollama serve
@@ -71,7 +71,7 @@ mvn spring-boot:run
 ```yaml
 ollama:
   base-url: http://localhost:11434  # Ollama 服务地址
-  model: qwen:7b                    # 使用的模型
+  model: qwen2.5:7b                 # 使用的模型
 
 bilibili:
   headless: false  # false=显示浏览器窗口，true=后台运行
@@ -81,7 +81,7 @@ bilibili:
 
 - `MYSQL_URL` / `MYSQL_USERNAME` / `MYSQL_PASSWORD`
 - `REDIS_HOST` / `REDIS_PORT` / `REDIS_DB` / `REDIS_PASSWORD`
-- `OLLAMA_BASE_URL` / `OLLAMA_MODEL`
+- `OLLAMA_BASE_URL` / `OLLAMA_MODEL` / `OLLAMA_JUDGE_MODELS`
 - `WS_ALLOWED_ORIGIN_PATTERNS`（生产环境请配置为你的站点域名，避免使用 `*`）
 - `WS_CLUSTER_ENABLED` / `WS_CLUSTER_CHANNEL`（多实例部署时启用 Redis Pub/Sub 广播）
 - `AUDIO_FP_ENABLED` / `AUDIO_FP_BASE_URL` / `AUDIO_FP_API_KEY`（可选：音频指纹识别）
@@ -91,7 +91,7 @@ bilibili:
 
 - **后端**：Spring Boot 3.3, WebSocket
 - **浏览器自动化**：Playwright for Java
-- **AI 模型**：Ollama (qwen:7b)
+- **AI 模型**：Ollama (qwen2.5:7b)
 - **前端**：HTML + JavaScript + STOMP.js
 
 ## 故障排查
