@@ -2,23 +2,48 @@ package com.example.bilibilimusic.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.bilibilimusic.dto.VideoInfo;
-import com.example.bilibilimusic.entity.*;
-import com.example.bilibilimusic.mapper.*;
+import com.example.bilibilimusic.entity.Conversation;
+import com.example.bilibilimusic.entity.MusicUnitEntity;
+import com.example.bilibilimusic.entity.Playlist;
+import com.example.bilibilimusic.entity.PlaylistItem;
+import com.example.bilibilimusic.entity.Video;
+import com.example.bilibilimusic.mapper.ConversationMapper;
+import com.example.bilibilimusic.mapper.MusicUnitMapper;
+import com.example.bilibilimusic.mapper.PlaylistItemMapper;
+import com.example.bilibilimusic.mapper.PlaylistMapper;
+import com.example.bilibilimusic.mapper.VideoMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
-/**
- * 数据库持久化服务
- */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class DatabaseService {
+
+    @Value("${DB_ENABLED:true}")
+    private boolean dbEnabled;
+
+    private final AtomicBoolean dbAvailable = new AtomicBoolean(true);
+    private final AtomicBoolean dbFailureLogged = new AtomicBoolean(false);
+
+    private final AtomicLong memoryConversationId = new AtomicLong(1);
+    private final AtomicLong memoryPlaylistId = new AtomicLong(1);
+    private final AtomicLong memoryVideoId = new AtomicLong(1);
+    private final Map<Long, Conversation> memoryConversations = new ConcurrentHashMap<>();
+    private final Map<Long, Playlist> memoryPlaylists = new ConcurrentHashMap<>();
+    private final Map<String, Video> memoryVideosByBvid = new ConcurrentHashMap<>();
 
     private final ConversationMapper conversationMapper;
     private final PlaylistMapper playlistMapper;
@@ -27,347 +52,529 @@ public class DatabaseService {
     private final PlaylistItemMapper playlistItemMapper;
     private final BilibiliSearchService bilibiliSearchService;
 
-    /**
-     * 创建或获取当前活跃会话
-     */
     public Conversation getOrCreateActiveConversation() {
-        // 查找当前活跃的会话
-        LambdaQueryWrapper<Conversation> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(Conversation::getStatus, "ACTIVE")
-               .orderByDesc(Conversation::getCreatedAt)
-               .last("LIMIT 1");
-        
-        Conversation conversation = conversationMapper.selectOne(wrapper);
-        
-        if (conversation == null) {
-            // 创建新会话
-            conversation = new Conversation();
+        if (!isDbUsable()) {
+            return getOrCreateMemoryConversation();
+        }
+        try {
+            LambdaQueryWrapper<Conversation> wrapper = new LambdaQueryWrapper<>();
+            wrapper.eq(Conversation::getStatus, "ACTIVE")
+                .orderByDesc(Conversation::getCreatedAt)
+                .last("LIMIT 1");
+            Conversation conversation = conversationMapper.selectOne(wrapper);
+            if (conversation == null) {
+                conversation = new Conversation();
+                conversation.setStatus("ACTIVE");
+                conversation.setUserId(1L);
+                conversation.setCreatedAt(LocalDateTime.now());
+                conversation.setUpdatedAt(LocalDateTime.now());
+                conversationMapper.insert(conversation);
+                log.info("Created conversation: id={}", conversation.getId());
+            } else if (conversation.getUserId() == null) {
+                conversation.setUserId(1L);
+                conversation.setUpdatedAt(LocalDateTime.now());
+                conversationMapper.updateById(conversation);
+            }
+            return conversation;
+        } catch (Exception e) {
+            markDbFailed("getOrCreateActiveConversation", e);
+            return getOrCreateMemoryConversation();
+        }
+    }
+
+    public Playlist createPlaylist(Long conversationId, String name, Integer targetCount) {
+        if (!isDbUsable()) {
+            return createMemoryPlaylist(conversationId, name, targetCount);
+        }
+        try {
+            Playlist playlist = new Playlist();
+            playlist.setConversationId(conversationId);
+            playlist.setName(name);
+            playlist.setTargetCount(targetCount);
+            playlist.setActualCount(0);
+            playlist.setStatus("BUILDING");
+            playlist.setCreatedAt(LocalDateTime.now());
+            playlistMapper.insert(playlist);
+
+            Conversation conversation = conversationMapper.selectById(conversationId);
+            if (conversation != null) {
+                conversation.setCurrentPlaylistId(playlist.getId());
+                conversation.setUpdatedAt(LocalDateTime.now());
+                conversationMapper.updateById(conversation);
+            }
+            return playlist;
+        } catch (Exception e) {
+            markDbFailed("createPlaylist", e);
+            return createMemoryPlaylist(conversationId, name, targetCount);
+        }
+    }
+
+    public Video saveOrUpdateVideo(VideoInfo videoInfo) {
+        if (!isDbUsable()) {
+            return saveOrUpdateMemoryVideo(videoInfo);
+        }
+        try {
+            if (videoInfo == null) {
+                return null;
+            }
+            String bvid = extractBvid(videoInfo);
+            if (bvid == null) {
+                log.warn("Cannot extract BVID from url={}", videoInfo.getUrl());
+                return null;
+            }
+
+            LambdaQueryWrapper<Video> wrapper = new LambdaQueryWrapper<>();
+            wrapper.eq(Video::getPlatform, "bilibili")
+                .eq(Video::getPlatformVid, bvid);
+            Video video = videoMapper.selectOne(wrapper);
+            if (video == null) {
+                video = new Video();
+                video.setPlatform("bilibili");
+                video.setPlatformVid(bvid);
+                video.setCreatedAt(LocalDateTime.now());
+                videoMapper.insert(video);
+            }
+
+            video.setTitle(videoInfo.getTitle());
+            video.setTags(videoInfo.getTags());
+            video.setDescription(videoInfo.getDescription());
+            video.setDurationSec(parseDurationToSeconds(videoInfo.getDuration()));
+            video.setUrl(videoInfo.getUrl());
+            videoMapper.updateById(video);
+            return video;
+        } catch (Exception e) {
+            markDbFailed("saveOrUpdateVideo", e);
+            return saveOrUpdateMemoryVideo(videoInfo);
+        }
+    }
+
+    @Transactional
+    public void addMusicToPlaylist(Long playlistId, String title, String artist,
+                                   Video video, String reason, Integer position) {
+        if (!isDbUsable()) {
+            updateMemoryPlaylistCount(playlistId);
+            return;
+        }
+        try {
+            MusicUnitEntity musicUnit = new MusicUnitEntity();
+            musicUnit.setTitle(title);
+            musicUnit.setArtist(artist);
+            musicUnit.setDurationSec(video != null ? video.getDurationSec() : null);
+            musicUnit.setSource("bilibili");
+            musicUnit.setCreatedAt(LocalDateTime.now());
+            musicUnitMapper.insert(musicUnit);
+
+            PlaylistItem item = new PlaylistItem();
+            item.setPlaylistId(playlistId);
+            item.setMusicUnitId(musicUnit.getId());
+            item.setVideoId(video != null ? video.getId() : null);
+            item.setPosition(position);
+            item.setAddedReason(reason);
+            item.setUserLiked(false);
+            item.setWeight(1);
+            item.setCreatedAt(LocalDateTime.now());
+            playlistItemMapper.insert(item);
+
+            Playlist playlist = playlistMapper.selectById(playlistId);
+            if (playlist != null) {
+                int current = playlist.getActualCount() != null ? playlist.getActualCount() : 0;
+                playlist.setActualCount(current + 1);
+                playlistMapper.updateById(playlist);
+            }
+        } catch (Exception e) {
+            markDbFailed("addMusicToPlaylist", e);
+        }
+    }
+
+    @Transactional
+    public void addVideoToPlaylistByUrl(Long playlistId, String url, String reason) {
+        if (url == null || url.isBlank()) {
+            return;
+        }
+        if (!isDbUsable()) {
+            VideoInfo videoInfo = bilibiliSearchService.fetchByUrl(url);
+            if (videoInfo == null) {
+                log.warn("Failed to fetch video info by url={}", url);
+                return;
+            }
+            videoInfo.setBvid(extractBvid(url));
+            saveOrUpdateMemoryVideo(videoInfo);
+            updateMemoryPlaylistCount(playlistId);
+            return;
+        }
+        try {
+            VideoInfo videoInfo = bilibiliSearchService.fetchByUrl(url);
+            if (videoInfo == null) {
+                log.warn("Failed to fetch video info by url={}", url);
+                return;
+            }
+            videoInfo.setBvid(extractBvid(url));
+            Video video = saveOrUpdateVideo(videoInfo);
+            if (video == null) {
+                log.warn("Failed to persist video by url={}", url);
+                return;
+            }
+            LambdaQueryWrapper<PlaylistItem> wrapper = new LambdaQueryWrapper<>();
+            wrapper.eq(PlaylistItem::getPlaylistId, playlistId)
+                .orderByDesc(PlaylistItem::getPosition)
+                .last("LIMIT 1");
+            PlaylistItem last = playlistItemMapper.selectOne(wrapper);
+            int nextPosition = (last != null && last.getPosition() != null) ? last.getPosition() + 1 : 1;
+            addMusicToPlaylist(playlistId, videoInfo.getTitle(), videoInfo.getAuthor(), video, reason, nextPosition);
+        } catch (Exception e) {
+            markDbFailed("addVideoToPlaylistByUrl", e);
+        }
+    }
+
+    public List<VideoInfo> getRandomRecommendations(int limit) {
+        if (!isDbUsable()) {
+            return new ArrayList<>();
+        }
+        try {
+            int actualLimit = limit > 0 ? limit : 10;
+            List<Video> videos = videoMapper.selectRandomVideos(actualLimit);
+            List<VideoInfo> result = new ArrayList<>();
+            for (Video v : videos) {
+                if (v == null) {
+                    continue;
+                }
+                String durationStr = null;
+                if (v.getDurationSec() != null && v.getDurationSec() > 0) {
+                    int total = v.getDurationSec();
+                    durationStr = String.format("%d:%02d", total / 60, total % 60);
+                }
+                result.add(VideoInfo.builder()
+                    .bvid(v.getPlatformVid())
+                    .title(v.getTitle())
+                    .url(v.getUrl())
+                    .author("unknown")
+                    .duration(durationStr)
+                    .tags(v.getTags())
+                    .description(v.getDescription())
+                    .build());
+            }
+            return result;
+        } catch (Exception e) {
+            markDbFailed("getRandomRecommendations", e);
+            return new ArrayList<>();
+        }
+    }
+
+    public void finishPlaylist(Long playlistId, boolean isPartial) {
+        if (!isDbUsable()) {
+            updateMemoryPlaylistStatus(playlistId, isPartial);
+            return;
+        }
+        try {
+            Playlist playlist = playlistMapper.selectById(playlistId);
+            if (playlist != null) {
+                playlist.setStatus(isPartial ? "PARTIAL" : "DONE");
+                playlistMapper.updateById(playlist);
+            }
+        } catch (Exception e) {
+            markDbFailed("finishPlaylist", e);
+        }
+    }
+
+    public void increaseItemWeight(Long itemId) {
+        if (!isDbUsable()) {
+            return;
+        }
+        try {
+            PlaylistItem item = playlistItemMapper.selectById(itemId);
+            if (item != null) {
+                int current = item.getWeight() != null ? item.getWeight() : 1;
+                item.setWeight(current + 1);
+                item.setUserLiked(true);
+                playlistItemMapper.updateById(item);
+            }
+        } catch (Exception e) {
+            markDbFailed("increaseItemWeight", e);
+        }
+    }
+
+    public void savePlaylistWithName(Long playlistId, String name) {
+        if (!isDbUsable()) {
+            updateMemoryPlaylistName(playlistId, name);
+            return;
+        }
+        try {
+            Playlist playlist = playlistMapper.selectById(playlistId);
+            if (playlist != null) {
+                playlist.setName(name);
+                playlistMapper.updateById(playlist);
+            } else {
+                log.warn("Playlist not found: playlistId={}", playlistId);
+            }
+        } catch (Exception e) {
+            markDbFailed("savePlaylistWithName", e);
+        }
+    }
+
+    public List<Conversation> getAllConversations() {
+        if (!isDbUsable()) {
+            return getMemoryConversations();
+        }
+        try {
+            LambdaQueryWrapper<Conversation> wrapper = new LambdaQueryWrapper<>();
+            wrapper.orderByDesc(Conversation::getUpdatedAt);
+            return conversationMapper.selectList(wrapper);
+        } catch (Exception e) {
+            markDbFailed("getAllConversations", e);
+            return getMemoryConversations();
+        }
+    }
+
+    public Conversation createNewConversation(String name) {
+        if (!isDbUsable()) {
+            return createMemoryConversation();
+        }
+        try {
+            LambdaQueryWrapper<Conversation> wrapper = new LambdaQueryWrapper<>();
+            wrapper.eq(Conversation::getStatus, "ACTIVE");
+            List<Conversation> activeConversations = conversationMapper.selectList(wrapper);
+            for (Conversation c : activeConversations) {
+                c.setStatus("FINISHED");
+                conversationMapper.updateById(c);
+            }
+
+            Conversation conversation = new Conversation();
             conversation.setStatus("ACTIVE");
-            // 单用户模式的默认 userId，便于“跨会话在线学习”聚合
             conversation.setUserId(1L);
             conversation.setCreatedAt(LocalDateTime.now());
             conversation.setUpdatedAt(LocalDateTime.now());
             conversationMapper.insert(conversation);
-            log.info("创建新会话，ID: {}", conversation.getId());
-        } else if (conversation.getUserId() == null) {
-            // 兼容旧数据：补齐 userId，避免偏好无法按用户聚合
-            conversation.setUserId(1L);
-            conversation.setUpdatedAt(LocalDateTime.now());
-            conversationMapper.updateById(conversation);
+            return conversation;
+        } catch (Exception e) {
+            markDbFailed("createNewConversation", e);
+            return createMemoryConversation();
         }
-        
+    }
+
+    public Video findVideoByBvid(String bvid) {
+        if (bvid == null || bvid.isBlank()) {
+            return null;
+        }
+        if (!isDbUsable()) {
+            return memoryVideosByBvid.get(bvid);
+        }
+        try {
+            LambdaQueryWrapper<Video> wrapper = new LambdaQueryWrapper<>();
+            wrapper.eq(Video::getPlatform, "bilibili")
+                .eq(Video::getPlatformVid, bvid)
+                .last("LIMIT 1");
+            return videoMapper.selectOne(wrapper);
+        } catch (Exception e) {
+            markDbFailed("findVideoByBvid", e);
+            return memoryVideosByBvid.get(bvid);
+        }
+    }
+
+    public void switchToConversation(Long conversationId) {
+        if (!isDbUsable()) {
+            switchMemoryConversation(conversationId);
+            return;
+        }
+        try {
+            LambdaQueryWrapper<Conversation> wrapper = new LambdaQueryWrapper<>();
+            wrapper.eq(Conversation::getStatus, "ACTIVE");
+            List<Conversation> activeConversations = conversationMapper.selectList(wrapper);
+            for (Conversation c : activeConversations) {
+                c.setStatus("FINISHED");
+                conversationMapper.updateById(c);
+            }
+
+            Conversation conversation = conversationMapper.selectById(conversationId);
+            if (conversation != null) {
+                conversation.setStatus("ACTIVE");
+                conversation.setUpdatedAt(LocalDateTime.now());
+                conversationMapper.updateById(conversation);
+            }
+        } catch (Exception e) {
+            markDbFailed("switchToConversation", e);
+        }
+    }
+
+    public void deleteConversation(Long conversationId) {
+        if (!isDbUsable()) {
+            memoryConversations.remove(conversationId);
+            return;
+        }
+        try {
+            conversationMapper.deleteById(conversationId);
+        } catch (Exception e) {
+            markDbFailed("deleteConversation", e);
+        }
+    }
+
+    private boolean isDbUsable() {
+        return dbEnabled && dbAvailable.get();
+    }
+
+    private void markDbFailed(String op, Exception e) {
+        if (e == null) {
+            return;
+        }
+        dbAvailable.set(false);
+        if (dbFailureLogged.compareAndSet(false, true)) {
+            log.warn("[Database] DB unavailable, switching to in-memory mode. op={}, reason={}", op, e.getMessage());
+        } else {
+            log.debug("[Database] op={} failed: {}", op, e.getMessage());
+        }
+    }
+
+    private Conversation getOrCreateMemoryConversation() {
+        Conversation active = null;
+        for (Conversation c : memoryConversations.values()) {
+            if (c != null && "ACTIVE".equals(c.getStatus())) {
+                active = c;
+                break;
+            }
+        }
+        if (active == null) {
+            active = createMemoryConversation();
+        }
+        if (active.getUpdatedAt() == null) {
+            active.setUpdatedAt(LocalDateTime.now());
+        }
+        return active;
+    }
+
+    private Conversation createMemoryConversation() {
+        for (Conversation c : memoryConversations.values()) {
+            if (c != null && "ACTIVE".equals(c.getStatus())) {
+                c.setStatus("FINISHED");
+                c.setUpdatedAt(LocalDateTime.now());
+            }
+        }
+        Conversation conversation = new Conversation();
+        long id = memoryConversationId.getAndIncrement();
+        LocalDateTime now = LocalDateTime.now();
+        conversation.setId(id);
+        conversation.setStatus("ACTIVE");
+        conversation.setUserId(1L);
+        conversation.setCreatedAt(now);
+        conversation.setUpdatedAt(now);
+        memoryConversations.put(id, conversation);
         return conversation;
     }
 
-    /**
-     * 创建播放列表
-     */
-    public Playlist createPlaylist(Long conversationId, String name, Integer targetCount) {
+    private List<Conversation> getMemoryConversations() {
+        List<Conversation> list = new ArrayList<>(memoryConversations.values());
+        list.sort(Comparator.comparing(Conversation::getUpdatedAt,
+            Comparator.nullsLast(Comparator.naturalOrder())).reversed());
+        return list;
+    }
+
+    private Playlist createMemoryPlaylist(Long conversationId, String name, Integer targetCount) {
         Playlist playlist = new Playlist();
+        long id = memoryPlaylistId.getAndIncrement();
+        playlist.setId(id);
         playlist.setConversationId(conversationId);
         playlist.setName(name);
         playlist.setTargetCount(targetCount);
         playlist.setActualCount(0);
         playlist.setStatus("BUILDING");
         playlist.setCreatedAt(LocalDateTime.now());
-        
-        playlistMapper.insert(playlist);
-        log.info("创建播放列表，ID: {}, 名称: {}", playlist.getId(), name);
-        
-        // 更新会话的当前播放列表ID
-        Conversation conversation = conversationMapper.selectById(conversationId);
-        if (conversation != null) {
-            conversation.setCurrentPlaylistId(playlist.getId());
-            conversation.setUpdatedAt(LocalDateTime.now());
-            conversationMapper.updateById(conversation);
+        memoryPlaylists.put(id, playlist);
+
+        Conversation conv = memoryConversations.get(conversationId);
+        if (conv != null) {
+            conv.setCurrentPlaylistId(id);
+            conv.setUpdatedAt(LocalDateTime.now());
         }
-        
         return playlist;
     }
 
-    /**
-     * 保存或更新视频（去重）
-     */
-    public Video saveOrUpdateVideo(VideoInfo videoInfo) {
-        // 从URL提取BVID
-        String bvid = extractBvid(videoInfo.getUrl());
-        if (bvid == null) {
-            log.warn("无法从URL提取BVID: {}", videoInfo.getUrl());
+    private Video saveOrUpdateMemoryVideo(VideoInfo videoInfo) {
+        if (videoInfo == null) {
             return null;
         }
-
-        // 查找是否已存在
-        LambdaQueryWrapper<Video> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(Video::getPlatform, "bilibili")
-               .eq(Video::getPlatformVid, bvid);
-        
-        Video video = videoMapper.selectOne(wrapper);
-        
+        String bvid = extractBvid(videoInfo);
+        if (bvid == null) {
+            return null;
+        }
+        Video video = memoryVideosByBvid.get(bvid);
         if (video == null) {
-            // 新视频，插入
             video = new Video();
+            video.setId(memoryVideoId.getAndIncrement());
             video.setPlatform("bilibili");
             video.setPlatformVid(bvid);
-            video.setTitle(videoInfo.getTitle());
-            video.setTags(videoInfo.getTags());
-            video.setDescription(videoInfo.getDescription());
-            video.setDurationSec(parseDurationToSeconds(videoInfo.getDuration()));
-            video.setUrl(videoInfo.getUrl());
             video.setCreatedAt(LocalDateTime.now());
-            
-            videoMapper.insert(video);
-            log.debug("保存新视频到数据库: {} - {}", bvid, videoInfo.getTitle());
-        } else {
-            // 已存在，更新信息
-            video.setTitle(videoInfo.getTitle());
-            video.setTags(videoInfo.getTags());
-            video.setDescription(videoInfo.getDescription());
-            video.setDurationSec(parseDurationToSeconds(videoInfo.getDuration()));
-            
-            videoMapper.updateById(video);
-            log.debug("更新视频信息: {} - {}", bvid, videoInfo.getTitle());
+            memoryVideosByBvid.put(bvid, video);
         }
-        
+        video.setTitle(videoInfo.getTitle());
+        video.setTags(videoInfo.getTags());
+        video.setDescription(videoInfo.getDescription());
+        video.setDurationSec(parseDurationToSeconds(videoInfo.getDuration()));
+        video.setUrl(videoInfo.getUrl());
         return video;
     }
 
-    /**
-     * 添加歌曲到播放列表
-     */
-    @Transactional
-    public void addMusicToPlaylist(Long playlistId, String title, String artist, 
-                                    Video video, String reason, Integer position) {
-        // 创建音乐单元
-        MusicUnitEntity musicUnit = new MusicUnitEntity();
-        musicUnit.setTitle(title);
-        musicUnit.setArtist(artist);
-        musicUnit.setDurationSec(video.getDurationSec());
-        musicUnit.setSource("bilibili");
-        musicUnit.setCreatedAt(LocalDateTime.now());
-        
-        musicUnitMapper.insert(musicUnit);
-        
-        // 创建播放列表项
-        PlaylistItem item = new PlaylistItem();
-        item.setPlaylistId(playlistId);
-        item.setMusicUnitId(musicUnit.getId());
-        item.setVideoId(video.getId());
-        item.setPosition(position);
-        item.setAddedReason(reason);
-        item.setUserLiked(false);
-        item.setWeight(1); // 默认权重为1
-        item.setCreatedAt(LocalDateTime.now());
-        
-        playlistItemMapper.insert(item);
-        
-        // 更新播放列表的实际数量
-        Playlist playlist = playlistMapper.selectById(playlistId);
+    private void updateMemoryPlaylistCount(Long playlistId) {
+        Playlist playlist = memoryPlaylists.get(playlistId);
         if (playlist != null) {
-            playlist.setActualCount(playlist.getActualCount() + 1);
-            playlistMapper.updateById(playlist);
+            int current = playlist.getActualCount() != null ? playlist.getActualCount() : 0;
+            playlist.setActualCount(current + 1);
         }
-        
-        log.info("添加歌曲到播放列表: {} - {}, 位置: {}", title, artist, position);
     }
 
-    /**
-     * 手动通过视频 URL 将视频加入播放列表
-     */
-    @Transactional
-    public void addVideoToPlaylistByUrl(Long playlistId, String url, String reason) {
-        VideoInfo videoInfo = bilibiliSearchService.fetchByUrl(url);
-        if (videoInfo == null) {
-            log.warn("根据URL抓取视频信息失败: url={}", url);
-            return;
-        }
-        videoInfo.setBvid(extractBvid(url));
-        Video video = saveOrUpdateVideo(videoInfo);
-        if (video == null) {
-            log.warn("保存视频失败，无法加入播放列表: url={}", url);
-            return;
-        }
-        // 计算新的 position（当前最大 position + 1）
-        LambdaQueryWrapper<PlaylistItem> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(PlaylistItem::getPlaylistId, playlistId)
-               .orderByDesc(PlaylistItem::getPosition)
-               .last("LIMIT 1");
-        PlaylistItem last = playlistItemMapper.selectOne(wrapper);
-        int nextPosition = (last != null && last.getPosition() != null) ? last.getPosition() + 1 : 1;
-        addMusicToPlaylist(playlistId, videoInfo.getTitle(), videoInfo.getAuthor(), video, reason, nextPosition);
-    }
-    
-    /**
-     * 随机获取若干视频，转换为 VideoInfo（用于每日推荐榜单）
-     */
-    public List<VideoInfo> getRandomRecommendations(int limit) {
-        if (limit <= 0) {
-            limit = 10;
-        }
-        List<Video> videos = videoMapper.selectRandomVideos(limit);
-        List<VideoInfo> result = new java.util.ArrayList<>();
-        for (Video v : videos) {
-            if (v == null) continue;
-            String durationStr = null;
-            if (v.getDurationSec() != null && v.getDurationSec() > 0) {
-                int total = v.getDurationSec();
-                int m = total / 60;
-                int s = total % 60;
-                durationStr = String.format("%d:%02d", m, s);
-            }
-            result.add(VideoInfo.builder()
-                .bvid(v.getPlatformVid())
-                .title(v.getTitle())
-                .url(v.getUrl())
-                .author("未知")
-                .duration(durationStr)
-                .tags(v.getTags())
-                .description(v.getDescription())
-                .build());
-        }
-        return result;
-    }
-
-    /**
-     * 完成播放列表构建
-     */
-    public void finishPlaylist(Long playlistId, boolean isPartial) {
-        Playlist playlist = playlistMapper.selectById(playlistId);
+    private void updateMemoryPlaylistStatus(Long playlistId, boolean isPartial) {
+        Playlist playlist = memoryPlaylists.get(playlistId);
         if (playlist != null) {
             playlist.setStatus(isPartial ? "PARTIAL" : "DONE");
-            playlistMapper.updateById(playlist);
-            log.info("播放列表构建完成，ID: {}, 状态: {}", playlistId, playlist.getStatus());
         }
     }
-    
-    /**
-     * 增加播放列表项权重（点击爱心）
-     */
-    public void increaseItemWeight(Long itemId) {
-        PlaylistItem item = playlistItemMapper.selectById(itemId);
-        if (item != null) {
-            Integer currentWeight = item.getWeight() != null ? item.getWeight() : 1;
-            item.setWeight(currentWeight + 1);
-            item.setUserLiked(true);
-            playlistItemMapper.updateById(item);
-            log.info("增加视频权重: itemId={}, 新权重={}", itemId, item.getWeight());
-        }
-    }
-    
-    /**
-     * 保存播放列表并重命名
-     */
-    public void savePlaylistWithName(Long playlistId, String name) {
-        Playlist playlist = playlistMapper.selectById(playlistId);
+
+    private void updateMemoryPlaylistName(Long playlistId, String name) {
+        Playlist playlist = memoryPlaylists.get(playlistId);
         if (playlist != null) {
             playlist.setName(name);
-            playlistMapper.updateById(playlist);
-            log.info("保存播放列表: playlistId={}, 新名称={}", playlistId, name);
-        } else {
-            log.warn("播放列表不存在: playlistId={}", playlistId);
         }
     }
-    
-    /**
-     * 获取所有对话窗口
-     */
-    public java.util.List<Conversation> getAllConversations() {
-        LambdaQueryWrapper<Conversation> wrapper = new LambdaQueryWrapper<>();
-        wrapper.orderByDesc(Conversation::getUpdatedAt);
-        return conversationMapper.selectList(wrapper);
-    }
-    
-    /**
-     * 创建新对话窗口
-     */
-    public Conversation createNewConversation(String name) {
-        // 将其他所有对话设为FINISHED
-        LambdaQueryWrapper<Conversation> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(Conversation::getStatus, "ACTIVE");
-        java.util.List<Conversation> activeConversations = conversationMapper.selectList(wrapper);
-        activeConversations.forEach(c -> {
-            c.setStatus("FINISHED");
-            conversationMapper.updateById(c);
-        });
-        
-        // 创建新对话
-        Conversation conversation = new Conversation();
-        conversation.setStatus("ACTIVE");
-        conversation.setUserId(1L);
-        conversation.setCreatedAt(LocalDateTime.now());
-        conversation.setUpdatedAt(LocalDateTime.now());
-        conversationMapper.insert(conversation);
-        log.info("创建新对话窗口，ID: {}", conversation.getId());
-        return conversation;
+
+    private void switchMemoryConversation(Long conversationId) {
+        for (Conversation c : memoryConversations.values()) {
+            if (c == null) {
+                continue;
+            }
+            if (c.getId() != null && c.getId().equals(conversationId)) {
+                c.setStatus("ACTIVE");
+                c.setUpdatedAt(LocalDateTime.now());
+            } else if ("ACTIVE".equals(c.getStatus())) {
+                c.setStatus("FINISHED");
+                c.setUpdatedAt(LocalDateTime.now());
+            }
+        }
     }
 
-    /**
-     * 根据 BV 号查询视频缓存记录
-     */
-    public Video findVideoByBvid(String bvid) {
-        if (bvid == null || bvid.isBlank()) {
+    private String extractBvid(VideoInfo videoInfo) {
+        if (videoInfo == null) {
             return null;
         }
-        LambdaQueryWrapper<Video> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(Video::getPlatform, "bilibili")
-            .eq(Video::getPlatformVid, bvid)
-            .last("LIMIT 1");
-        return videoMapper.selectOne(wrapper);
-    }
-    
-    /**
-     * 切换到指定对话窗口
-     */
-    public void switchToConversation(Long conversationId) {
-        // 将其他所有对话设为FINISHED
-        LambdaQueryWrapper<Conversation> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(Conversation::getStatus, "ACTIVE");
-        java.util.List<Conversation> activeConversations = conversationMapper.selectList(wrapper);
-        activeConversations.forEach(c -> {
-            c.setStatus("FINISHED");
-            conversationMapper.updateById(c);
-        });
-        
-        // 将目标对话设为ACTIVE
-        Conversation conversation = conversationMapper.selectById(conversationId);
-        if (conversation != null) {
-            conversation.setStatus("ACTIVE");
-            conversation.setUpdatedAt(LocalDateTime.now());
-            conversationMapper.updateById(conversation);
-            log.info("切换到对话窗口: conversationId={}", conversationId);
+        String bvid = videoInfo.getBvid();
+        if (bvid != null && !bvid.isBlank()) {
+            return bvid;
         }
-    }
-    
-    /**
-     * 删除对话窗口
-     */
-    public void deleteConversation(Long conversationId) {
-        conversationMapper.deleteById(conversationId);
-        log.info("删除对话窗口: conversationId={}", conversationId);
+        return extractBvid(videoInfo.getUrl());
     }
 
-    /**
-     * 从URL提取BVID
-     */
     private String extractBvid(String url) {
-        if (url == null) return null;
-        
+        if (url == null) {
+            return null;
+        }
         java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("/video/(BV[a-zA-Z0-9]+)");
         java.util.regex.Matcher matcher = pattern.matcher(url);
-        
         if (matcher.find()) {
             return matcher.group(1);
         }
         return null;
     }
 
-    /**
-     * 将时长字符串转换为秒
-     */
     private Integer parseDurationToSeconds(String duration) {
         if (duration == null || duration.isBlank()) {
             return null;
         }
-        
         try {
             String[] parts = duration.trim().split(":");
             if (parts.length == 3) {
@@ -382,7 +589,6 @@ public class DatabaseService {
             }
         } catch (Exception ignored) {
         }
-        
         return null;
     }
 }
