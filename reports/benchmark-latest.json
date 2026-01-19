@@ -1,0 +1,16 @@
+{
+  "dataset" : "benchmark/offline-dataset-v1.jsonl",
+  "hitAtK" : 5,
+  "generatedAt" : "2026-01-19T09:31:17.777268900Z",
+  "metrics" : {
+    "caseCount" : 4,
+    "totalSamples" : 16,
+    "accuracy" : 1.0,
+    "precision" : 1.0,
+    "recall" : 1.0,
+    "f1" : 1.0,
+    "hitAtK" : 5,
+    "hitRateAtK" : 1.0,
+    "elapsedMs" : 74.2373
+  }
+}

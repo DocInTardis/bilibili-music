@@ -21,6 +21,14 @@ import static org.mockito.Mockito.when;
 final class OfflineBenchmarkRunner {
 
     static BenchmarkReport run(String classpathJsonl, int hitAtK) throws Exception {
+        return runInternal(classpathJsonl, hitAtK, null);
+    }
+
+    static BenchmarkReport runWithModeOverride(String classpathJsonl, int hitAtK, String overrideMode) throws Exception {
+        return runInternal(classpathJsonl, hitAtK, overrideMode);
+    }
+
+    private static BenchmarkReport runInternal(String classpathJsonl, int hitAtK, String overrideMode) throws Exception {
         List<DatasetCase> cases = loadJsonl(classpathJsonl);
 
         UserBehaviorFeedbackService behavior = mock(UserBehaviorFeedbackService.class);
@@ -49,6 +57,9 @@ final class OfflineBenchmarkRunner {
 
         for (DatasetCase datasetCase : cases) {
             UserIntent intent = toUserIntent(datasetCase.intent);
+            if (overrideMode != null && !overrideMode.isBlank()) {
+                intent.setMode(overrideMode);
+            }
             List<ScoredLabel> scored = new ArrayList<>();
 
             for (DatasetVideo v : datasetCase.candidates) {

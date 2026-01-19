@@ -120,3 +120,17 @@ ollama serve
 - [ ] 支持播放列表自动创建
 - [ ] 本地 MP3 下载功能
 - [ ] 多轮对话优化歌单
+
+## MP3 download and resumable playback
+
+The app can fetch the audio stream from Bilibili and convert it to MP3 for resumable playback.
+
+### API
+- `POST /api/media/mp3`
+  - Body: `{ "bvid": "BV...", "url": "https://www.bilibili.com/video/BV..." }`
+  - Response: `{ "bvid": "BV...", "path": "...", "downloadUrl": "/api/media/mp3/BV...", "size": 12345 }`
+- `GET /api/media/mp3/{bvid}`: stream MP3 with Range support.
+
+### Requirements
+- `ffmpeg` must be available in PATH or configure `FFMPEG_PATH`.
+- Download directory: `MEDIA_DOWNLOAD_DIR` (default `downloads`).

@@ -25,3 +25,15 @@ mvn -q -Dtest=OfflineBenchmarkRegressionTest test
 - `hit@K`: 每个 case 的 Top-K 命中率（Top-K 内是否存在 relevant）
 - `elapsedMs`: 整体耗时（毫秒）
 
+
+## 报告/对比
+
+生成量化报告（输出到 `reports/`）：
+```bash
+mvn -q -Dtest=OfflineBenchmarkReportWriterTest test
+```
+
+报告文件：
+- `reports/benchmark-latest.json`：最新指标（默认策略）
+- `reports/benchmark-compare.json`：default/strict/explore 对比
+- `reports/benchmark-latest.md`：可读性总结

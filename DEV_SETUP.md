@@ -37,3 +37,7 @@ docker compose -f docker-compose.dev.yml -f observability/docker-compose.observa
 
 Grafana: `http://localhost:3000` (admin / admin)
 
+
+## Optional: MP3 download
+
+Install `ffmpeg` and make it available in PATH (or set `FFMPEG_PATH`).

@@ -22,6 +22,9 @@ createApp({
             isPlaying: false,
             playerSrc: '',
             lastPlayerSrc: '',
+            audioSrc: '',
+            isDownloading: false,
+            playRequestSeq: 0,
             agentSummary: '',
             confidence: null,
             recommendationExplanation: null,
@@ -258,6 +261,7 @@ createApp({
             if (this.playlist.some(v => v.url && video.url && v.url === video.url)) {
                 return;
             }
+            this.ensureVideoBvid(video);
             if (decisionPayload) {
                 video.__decision = decisionPayload;
             }
@@ -275,36 +279,136 @@ createApp({
             }
             return index + 1;
         },
+        ensureVideoBvid(video) {
+            if (!video) return;
+            if (!video.bvid) {
+                const bvid = this.extractBvid(video.url || '');
+                if (bvid) {
+                    video.bvid = bvid;
+                }
+            }
+        },
+        async ensureMp3(video) {
+            if (!video) {
+                throw new Error('视频为空');
+            }
+            this.ensureVideoBvid(video);
+            if (video._mp3Url) {
+                return video._mp3Url;
+            }
+            const resp = await fetch('/api/media/mp3', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    bvid: video.bvid || '',
+                    url: video.url || ''
+                })
+            });
+            if (!resp.ok) {
+                throw new Error('MP3 下载失败');
+            }
+            const data = await resp.json();
+            if (!data || !data.downloadUrl) {
+                throw new Error('MP3 地址缺失');
+            }
+            video._mp3Url = data.downloadUrl;
+            return data.downloadUrl;
+        },
+        async downloadMp3(video) {
+            try {
+                this.addStatus('正在下载 MP3...');
+                const url = await this.ensureMp3(video);
+                this.addStatus(`MP3 已就绪: ${url}`);
+            } catch (e) {
+                this.addStatus(`MP3 下载失败: ${e && e.message ? e.message : '未知错误'}`);
+            }
+        },
+        handleAudioEnded() {
+            this.isPlaying = false;
+            this.playNext();
+        },
+        onAudioPlay() {
+            this.isPlaying = true;
+        },
+        onAudioPause() {
+            this.isPlaying = false;
+        },
         extractBvid(url) {
             if (!url) return null;
             const match = url.match(/\\/video\\/(BV[a-zA-Z0-9]+)/);
             return match ? match[1] : null;
         },
         buildPlayerSrc(bvid) {
-            return `https://player.bilibili.com/player.html?bvid=${bvid}&page=1&high_quality=1&autoplay=1&muted=0`;
+            return `https://player.bilibili.com/player.html?bvid=${bvid}&page=1&high_quality=1&autoplay=0&muted=1`;
         },
-        playVideo(index) {
+        async playVideo(index) {
             if (index < 0 || index >= this.playlist.length) return;
             this.currentVideoIndex = index;
             const video = this.playlist[index];
+            this.ensureVideoBvid(video);
             const bvid = this.extractBvid(video.url);
             if (bvid) {
                 this.playerSrc = this.buildPlayerSrc(bvid);
                 this.lastPlayerSrc = this.playerSrc;
-                this.isPlaying = true;
-            } else {
-                this.addStatus('无法解析视频地址');
+            }
+
+            const requestSeq = ++this.playRequestSeq;
+            this.isDownloading = true;
+            try {
+                const mp3Url = await this.ensureMp3(video);
+                if (requestSeq !== this.playRequestSeq) {
+                    return;
+                }
+                this.audioSrc = mp3Url;
+                await this.$nextTick();
+                const audio = this.$refs.audioPlayer;
+                if (audio) {
+                    audio.load();
+                    const playPromise = audio.play();
+                    if (playPromise) {
+                        playPromise.then(() => {
+                            this.isPlaying = true;
+                        }).catch(() => {
+                            this.isPlaying = false;
+                            this.addStatus('音频播放失败，请点击播放按钮重试');
+                        });
+                    } else {
+                        this.isPlaying = true;
+                    }
+                }
+            } catch (e) {
+                this.isPlaying = false;
+                this.addStatus(`音频加载失败: ${e && e.message ? e.message : '未知错误'}`);
+            } finally {
+                if (requestSeq === this.playRequestSeq) {
+                    this.isDownloading = false;
+                }
             }
         },
         togglePlayPause() {
-            if (!this.playerSrc && !this.lastPlayerSrc) return;
+            const audio = this.$refs.audioPlayer;
+            if (!audio) {
+                return;
+            }
+            if (!this.audioSrc && this.currentVideoIndex >= 0) {
+                this.playVideo(this.currentVideoIndex);
+                return;
+            }
             if (this.isPlaying) {
-                this.lastPlayerSrc = this.playerSrc || this.lastPlayerSrc;
-                this.playerSrc = '';
+                audio.pause();
                 this.isPlaying = false;
-            } else if (this.lastPlayerSrc) {
-                this.playerSrc = this.lastPlayerSrc;
-                this.isPlaying = true;
+            } else {
+                const playPromise = audio.play();
+                if (playPromise) {
+                    playPromise.then(() => {
+                        this.isPlaying = true;
+                    }).catch(() => {
+                        this.isPlaying = false;
+                        this.addStatus('音频播放失败，请稍后重试');
+                    });
+                } else {
+                    this.isPlaying = true;
+                }
             }
         },
         playNext() {
@@ -517,6 +621,9 @@ createApp({
                     this.playlist = [];
                     this.currentVideoIndex = -1;
                     this.playerSrc = '';
+                    this.audioSrc = '';
+                    this.isPlaying = false;
+                    this.isDownloading = false;
                     this.messages = [];
                     this.agentSummary = '';
                     this.loadConversations();
@@ -532,6 +639,9 @@ createApp({
                     this.playlist = [];
                     this.currentVideoIndex = -1;
                     this.playerSrc = '';
+                    this.audioSrc = '';
+                    this.isPlaying = false;
+                    this.isDownloading = false;
                     this.messages = [];
                     this.agentSummary = '';
                     this.addStatus(`已切换到对话 ${id}`);

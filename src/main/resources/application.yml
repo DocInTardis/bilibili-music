@@ -155,6 +155,11 @@ resilience4j:
         maxConcurrentCalls: 4
         maxWaitDuration: 0
 
+media:
+  download-dir: ${MEDIA_DOWNLOAD_DIR:downloads}
+  ffmpeg-path: ${FFMPEG_PATH:ffmpeg}
+  download-timeout-ms: ${MEDIA_DOWNLOAD_TIMEOUT_MS:30000}
+
 logging:
   level:
     root: INFO

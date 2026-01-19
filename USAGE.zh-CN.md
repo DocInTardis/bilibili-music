@@ -57,3 +57,21 @@ mvn spring-boot:run
 - 桌面一键启动（Windows）：`DESKTOP_START.md`
 - 可观测（Prometheus/Grafana/OTel）：`OBSERVABILITY.md`
 
+
+## MP3 下载与可暂停播放
+
+系统支持将 B 站音乐视频音频转为 MP3 并提供可暂停/继续的音频播放能力。
+
+### 前端行为
+- 播放列表点击后会触发 MP3 拉取并用 HTML5 Audio 播放，可随时暂停/继续。
+- 每条曲目提供“下载”按钮，手动触发 MP3 准备。
+
+### API
+- `POST /api/media/mp3`
+  - Body: `{ "bvid": "BV...", "url": "https://www.bilibili.com/video/BV..." }`
+  - Response: `{ "bvid": "BV...", "path": "...", "downloadUrl": "/api/media/mp3/BV...", "size": 12345 }`
+- `GET /api/media/mp3/{bvid}`：以流式方式读取 MP3（支持 Range）。
+
+### 依赖与配置
+- 需要本机可执行 `ffmpeg`（或配置 `FFMPEG_PATH`）。
+- 下载目录可配置：`MEDIA_DOWNLOAD_DIR`（默认 `downloads`）。

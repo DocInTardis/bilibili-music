@@ -41,6 +41,10 @@ body::before {
     pointer-events: none;
 }
 
+audio {
+    display: none;
+}
+
 [v-cloak] {
     display: none;
 }
