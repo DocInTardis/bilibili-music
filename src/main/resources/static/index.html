@@ -1,1918 +1,298 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Bilibili 音乐助手 Agent</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
-            height: 100vh;
-            overflow: hidden;
-            background: #f4f4f5;
-            margin: 0;
-            padding: 0;
-        }
-
-        .container {
-            display: flex;
-            height: calc(100vh - 70px); /* 留出底部控制栏的空间 */
-        }
-
-        /* 左侧播放列表 */
-        .playlist-sidebar {
-            width: 320px;
-            background: #ffffff;
-            border-right: 1px solid #e3e5e7;
-            display: flex;
-            flex-direction: column;
-        }
-
-        .playlist-header {
-            background: #00a1d6;
-            color: white;
-            padding: 20px;
-            border-bottom: 1px solid #0091c2;
-        }
-
-        .playlist-header h2 {
-            font-size: 18px;
-            font-weight: 600;
-            margin-bottom: 8px;
-        }
-
-        .playlist-header .count {
-            font-size: 13px;
-            opacity: 0.9;
-        }
-
-        .playlist-videos {
-            flex: 1;
-            overflow-y: auto;
-            padding: 12px;
-        }
-        
-        .playlist-actions {
-            padding: 12px;
-            display: flex;
-            gap: 8px;
-            border-top: 1px solid #e3e5e7;
-            background: #fafafa;
-        }
-        
-        .action-btn {
-            flex: 1;
-            padding: 10px 16px;
-            border: 1px solid #e3e5e7;
-            border-radius: 6px;
-            background: white;
-            cursor: pointer;
-            font-size: 13px;
-            font-weight: 500;
-            transition: all 0.2s;
-            color: #333;
-        }
-        
-        .action-btn:hover {
-            background: #00a1d6;
-            color: white;
-            border-color: #00a1d6;
-            transform: translateY(-2px);
-            box-shadow: 0 2px 8px rgba(0,161,214,0.3);
-        }
-        
-        .action-btn:active {
-            transform: translateY(0);
-        }
-
-        .video-card {
-            background: #f9f9f9;
-            border-radius: 6px;
-            padding: 12px;
-            margin-bottom: 10px;
-            cursor: pointer;
-            transition: all 0.2s;
-            border: 1px solid transparent;
-        }
-
-        .video-card:hover {
-            background: #f0f0f0;
-            border-color: #00a1d6;
-            transform: translateX(2px);
-        }
-
-        .video-card.active {
-            background: #e5f7ff;
-            border-color: #00a1d6;
-        }
-
-        .video-card .video-index {
-            display: inline-block;
-            width: 22px;
-            height: 22px;
-            line-height: 22px;
-            text-align: center;
-            background: #00a1d6;
-            color: white;
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: bold;
-            margin-right: 8px;
-            vertical-align: middle;
-        }
-
-        .video-card.active .video-index {
-            background: #fb7299;
-        }
-
-        .video-card .video-title {
-            font-size: 14px;
-            font-weight: 500;
-            color: #212121;
-            margin-bottom: 8px;
-            display: -webkit-box;
-            -webkit-line-clamp: 2;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
-            line-height: 1.4;
-        }
-
-        .video-card .video-meta {
-            font-size: 12px;
-            color: #999;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .love-btn {
-            background: none;
-            border: none;
-            font-size: 16px;
-            cursor: pointer;
-            padding: 4px 8px;
-            transition: all 0.2s;
-            color: #ccc;
-        }
-        
-        .love-btn:hover {
-            transform: scale(1.15);
-            color: #ff4d4d;
-        }
-
-        /* 中间视频区 */
-        .video-area {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            background: #f4f4f5;
-        }
-
-        .video-header {
-            background: white;
-            padding: 16px 24px;
-            border-bottom: 1px solid #e3e5e7;
-        }
-
-        .video-header h1 {
-            font-size: 20px;
-            font-weight: 600;
-            color: #212121;
-            margin-bottom: 8px;
-        }
-
-        .video-header .summary {
-            font-size: 14px;
-            color: #666;
-            line-height: 1.6;
-        }
-
-        .video-player-wrapper {
-            flex: 1;
-            padding: 24px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .video-player-container {
-            width: 100%;
-            max-width: 1200px;
-            background: #000;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-            position: relative;
-            padding-top: 56.25%; /* 16:9 */
-        }
-
-        .video-player-container iframe {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            border: none;
-        }
-
-        .empty-player {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            text-align: center;
-            color: #999;
-        }
-
-        .empty-player .icon {
-            font-size: 64px;
-            margin-bottom: 16px;
-            opacity: 0.5;
-        }
-
-        .empty-player p {
-            font-size: 14px;
-        }
-
-        /* 播放器控制栏（固定在页面底部） */
-        .player-controls-bottom {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            height: 70px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 16px;
-            padding: 0 24px;
-            background: white;
-            border-top: 1px solid #e3e5e7;
-            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
-            z-index: 1000;
-        }
-
-        .player-controls-bottom button,
-        .player-controls-bottom select {
-            font-size: 15px;
-            padding: 12px 24px;
-            border-radius: 8px;
-            border: 1px solid #e3e5e7;
-            background: white;
-            cursor: pointer;
-            transition: all 0.2s;
-            font-weight: 500;
-        }
-
-        .player-controls-bottom button:hover,
-        .player-controls-bottom select:hover {
-            background: #f0f0f0;
-            border-color: #00a1d6;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0,161,214,0.2);
-        }
-
-        .player-controls-bottom button:active {
-            transform: translateY(0);
-        }
-
-        .player-controls-bottom select {
-            min-width: 150px;
-        }
-
-        /* 拖拽样式 */
-        .video-card.dragging {
-            opacity: 0.5;
-        }
-
-        .video-card.drag-over {
-            border-top: 2px solid #00a1d6;
-        }
-
-        /* 右侧聊天区 */
-        .chat-panel {
-            width: 380px;
-            background: white;
-            border-left: 1px solid #e3e5e7;
-            display: flex;
-            flex-direction: column;
-        }
-
-        .chat-header {
-            background: #00a1d6;
-            color: white;
-            padding: 20px;
-            border-bottom: 1px solid #0091c2;
-        }
-
-        .chat-header h2 {
-            font-size: 18px;
-            font-weight: 600;
-            margin-bottom: 5px;
-        }
-
-        .chat-header p {
-            font-size: 13px;
-            opacity: 0.9;
-            margin-bottom: 12px;
-        }
-        
-        .new-chat-btn {
-            padding: 6px 12px;
-            background: rgba(255,255,255,0.2);
-            color: white;
-            border: 1px solid rgba(255,255,255,0.4);
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 12px;
-            font-weight: 500;
-            transition: all 0.2s;
-        }
-        
-        .new-chat-btn:hover {
-            background: rgba(255,255,255,0.3);
-            border-color: rgba(255,255,255,0.6);
-        }
-        
-        .conversation-list {
-            margin-top: 8px;
-            max-height: 120px;
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        }
-        
-        .conversation-item {
-            padding: 8px 12px;
-            background: rgba(255,255,255,0.1);
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 12px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            transition: all 0.2s;
-        }
-        
-        .conversation-item:hover {
-            background: rgba(255,255,255,0.2);
-        }
-        
-        .conversation-item.active {
-            background: rgba(251,114,153,0.5);
-            font-weight: 600;
-        }
-        
-        .conversation-item .delete-btn {
-            background: none;
-            border: none;
-            color: rgba(255,255,255,0.7);
-            cursor: pointer;
-            padding: 2px 6px;
-            font-size: 14px;
-        }
-        
-        .conversation-item .delete-btn:hover {
-            color: #ff4d4d;
-        }
-
-        .chat-messages {
-            flex: 1;
-            overflow-y: auto;
-            padding: 16px;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            background: #f9f9f9;
-        }
-
-        .message {
-            display: flex;
-            gap: 10px;
-            animation: slideIn 0.3s ease;
-        }
-
-        @keyframes slideIn {
-            from {
-                opacity: 0;
-                transform: translateY(10px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        .message.user {
-            flex-direction: row-reverse;
-        }
-
-        .message-avatar {
-            width: 36px;
-            height: 36px;
-            border-radius: 50%;
-            background: #00a1d6;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-weight: bold;
-            flex-shrink: 0;
-        }
-
-        .message.user .message-avatar {
-            background: #fb7299;
-        }
-
-        .message-content {
-            max-width: 70%;
-            padding: 10px 14px;
-            border-radius: 8px;
-            background: white;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        }
-
-        .message.user .message-content {
-            background: #00a1d6;
-            color: white;
-        }
-
-        .message-content .text {
-            line-height: 1.5;
-            word-wrap: break-word;
-            font-size: 14px;
-        }
-
-        .status-message {
-            text-align: center;
-            padding: 8px 12px;
-            background: #fff7e6;
-            border-radius: 6px;
-            font-size: 13px;
-            color: #d48806;
-            border: 1px solid #ffd591;
-        }
-
-        .chat-input-area {
-            padding: 16px;
-            background: white;
-            border-top: 1px solid #e3e5e7;
-        }
-
-        .input-group {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-        
-        .input-row {
-            display: flex;
-            gap: 8px;
-        }
-
-        .chat-input-area textarea {
-            flex: 1;
-            padding: 10px 12px;
-            border: 1px solid #e3e5e7;
-            border-radius: 6px;
-            resize: none;
-            font-size: 14px;
-            font-family: inherit;
-            transition: border-color 0.2s;
-        }
-
-        .chat-input-area textarea:focus {
-            outline: none;
-            border-color: #00a1d6;
-        }
-
-        .send-btn {
-            padding: 10px 20px;
-            background: #00a1d6;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 600;
-            transition: all 0.2s;
-        }
-
-        .send-btn:hover {
-            background: #0091c2;
-        }
-
-        .send-btn:active {
-            transform: scale(0.98);
-        }
-
-        .send-btn:disabled {
-            background: #ccc;
-            cursor: not-allowed;
-        }
-
-        /* 滚动条样式 */
-        .playlist-videos::-webkit-scrollbar,
-        .chat-messages::-webkit-scrollbar {
-            width: 6px;
-        }
-
-        .playlist-videos::-webkit-scrollbar-track,
-        .chat-messages::-webkit-scrollbar-track {
-            background: #f1f1f1;
-        }
-
-        .playlist-videos::-webkit-scrollbar-thumb,
-        .chat-messages::-webkit-scrollbar-thumb {
-            background: #c1c1c1;
-            border-radius: 3px;
-        }
-
-        .playlist-videos::-webkit-scrollbar-thumb:hover,
-        .chat-messages::-webkit-scrollbar-thumb:hover {
-            background: #a8a8a8;
-        }
-    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Noto+Sans+SC:wght@400;500;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/app.css" />
 </head>
 <body>
-    <div class="container">
-        <!-- 左侧播放列表 -->
-        <div class="playlist-sidebar">
-            <div class="playlist-header">
-                <h2>🎵 播放列表</h2>
-                <div class="count" id="playlistCount">暂无视频</div>
-            </div>
-            <div class="playlist-videos" id="videoList">
-                <!-- 视频列表将通过 JS 渲染 -->
-            </div>
-            <div class="playlist-actions">
-                <button class="action-btn continue-btn" onclick="continueAdding()" title="继续搜索相似的歌曲">
-                    🎶 继续添加
-                </button>
-                <button class="action-btn save-btn" onclick="savePlaylist()" title="保存当前播放列表">
-                    💾 保存列表
-                </button>
-            </div>
-        </div>
-
-        <!-- 中间视频区 -->
-        <div class="video-area">
-            <div class="video-header">
-                <h1 id="videoTitle">欢迎使用 Bilibili 音乐助手</h1>
-                <div class="summary" id="videoSummary">请在右侧输入您的音乐需求，例如：“帮我找 10 首适合学习的纯音乐”</div>
-            </div>
-            <div class="video-player-wrapper">
-                <div class="video-player-container" id="playerContainer">
-                    <div class="empty-player">
-                        <div class="icon">🎶</div>
-                        <p>暂无视频，请先搜索歌单</p>
-                    </div>
+    <div id="app" class="app" v-cloak>
+        <header class="topbar">
+            <div class="brand">
+                <div class="logo">♪</div>
+                <div>
+                    <h1>Bilibili 音乐助手</h1>
+                    <p>多阶段 Agent + 实时推荐，专注音乐视频的可解释决策。</p>
                 </div>
             </div>
-        </div>
-
-        <!-- 右侧对话框 -->
-        <div class="chat-panel">
-            <div class="chat-header">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                    <h2>🎵 Bilibili 音乐助手</h2>
-                    <div style="display:flex; gap:8px;">
-                        <button class="new-chat-btn" onclick="createNewConversation()" title="新建对话">
-                            ➕ 新对话
-                        </button>
-                        <button class="new-chat-btn" onclick="toggleExecutionHistory()" title="执行历史对比">
-                            📊 执行对比
-                        </button>
-                    </div>
-                </div>
-                <p>告诉我你想要什么样的歌单</p>
-                <div class="conversation-list" id="conversationList">
-                    <!-- 对话列表将通过JS动态加载 -->
-                </div>
+            <div class="status-chip" :class="{ online: wsConnected }">
+                <span class="dot"></span>
+                <span>{{ wsConnected ? '已连接' : '连接中...' }}</span>
             </div>
-
-            <div class="chat-messages" id="chatMessages">
-                <div class="status-message">
-                    欢迎使用！请在下方输入您的音乐需求，我会帮您在 B 站搜索并推荐歌单。
+            <div class="control-cluster">
+                <div class="control">
+                    <label>Mode</label>
+                    <select v-model="runMode">
+                        <option value="">default</option>
+                        <option value="low_cost">low_cost (no LLM)</option>
+                        <option value="strict">strict</option>
+                        <option value="explore">explore</option>
+                    </select>
                 </div>
+                <div class="control">
+                    <label>Limit</label>
+                    <select v-model.number="resultLimit">
+                        <option :value="10">10</option>
+                        <option :value="15">15</option>
+                        <option :value="20">20</option>
+                        <option :value="30">30</option>
+                    </select>
+                </div>
+                <div class="control">
+                    <label>Preference</label>
+                    <input v-model="preference" placeholder="optional preference" />
+                </div>
+                <label class="switch">
+                    <input type="checkbox" v-model="albumOrder" />
+                    Album order
+                </label>
+                <label class="switch">
+                    <input type="checkbox" v-model="highRelevanceMode" />
+                    高相关模式
+                </label>
             </div>
+        </header>
 
-            <div id="executionHistoryPanel" style="display:none; border-top:1px solid #e3e5e7; background:#fff; max-height:260px; overflow:auto; padding:8px 12px; font-size:12px;">
-                <div style="display:flex; justify-content: space-between; align-items:center; margin-bottom:6px;">
-                    <strong>执行历史对比</strong>
+        <main class="main">
+            <aside class="panel playlist-panel">
+                <div class="panel-header">
                     <div>
-                        <button style="margin-right:6px; padding:4px 8px; font-size:12px;" onclick="loadRecentExecutions()">刷新</button>
-                        <button style="padding:4px 8px; font-size:12px;" onclick="compareSelectedExecutions()">对比</button>
-                        <button style="margin-left:6px; padding:4px 8px; font-size:12px;" onclick="loadObservabilityStats()">Stats</button>
+                        <h2>播放列表</h2>
+                        <p>{{ playlistCountText }}</p>
+                    </div>
+                    <div class="panel-actions">
+                        <button class="btn secondary" @click="continueAdding" :disabled="playlist.length === 0">继续添加</button>
+                        <button class="btn" @click="savePlaylist" :disabled="playlist.length === 0">保存歌单</button>
                     </div>
                 </div>
-                <div id="executionHistoryContent">
-                    <div style="color:#999;">点击“刷新”加载最近执行记录</div>
+                <div class="playlist-body">
+                    <div v-if="playlist.length === 0" class="empty-state">暂无视频，发送一句话开始推荐。</div>
+                    <div
+                        v-for="(video, index) in playlist"
+                        :key="video.url || index"
+                        class="track-card"
+                        :class="{ active: index === currentVideoIndex, 'drag-over': index === dragOverIndex }"
+                        draggable="true"
+                        @dragstart="onDragStart(index)"
+                        @dragover.prevent="onDragOver(index)"
+                        @drop.prevent="onDrop(index)"
+                        @dragend="onDragEnd"
+                        @click="playVideo(index)"
+                    >
+                        <div class="track-title">
+                            <span class="track-index">{{ displayTrackIndex(video, index) }}</span>
+                            <span>{{ video.title || '未命名视频' }}</span>
+                        </div>
+                        <div class="track-meta">
+                            <span>👤 {{ video.author || '未知作者' }}</span>
+                            <span>⏱ {{ video.duration || '未知' }}</span>
+                            <button class="icon-btn" @click.stop="showWhy(video)">Why</button>
+                            <button class="icon-btn" @click.stop="likeVideo(video)">❤</button>
+                        </div>
+                    </div>
                 </div>
-                <div id="executionCompareResult" style="margin-top:8px;"></div>
-                <div id="observabilityStats" style="margin-top:8px;"></div>
-            </div>
+            </aside>
 
-            <div class="chat-input-area">
-                <div class="input-group">
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <label style="display: flex; align-items: center; cursor: pointer;">
-                            <input type="checkbox" id="highRelevanceMode" style="margin-right: 6px;">
-                            <span style="font-size: 13px;">🎯 高相关度模式</span>
-                        </label>
-                        <label style="display:flex; align-items:center; gap:6px;">
-                            <span style="font-size: 12px; color: rgba(255,255,255,0.85);">Mode</span>
-                            <select id="runMode" style="font-size:12px; padding:2px 6px; border-radius:6px; border:1px solid rgba(255,255,255,0.25); background:rgba(0,0,0,0.2); color:#fff;">
-                                <option value="" selected>default</option>
-                                <option value="low_cost">low_cost (no LLM)</option>
-                            </select>
-                        </label>
-                        <label style="display:flex; align-items:center; gap:6px;">
-                            <span style="font-size: 12px; color: rgba(255,255,255,0.85);">Limit</span>
-                            <select id="resultLimit" style="font-size:12px; padding:2px 6px; border-radius:6px; border:1px solid rgba(255,255,255,0.25); background:rgba(0,0,0,0.2); color:#fff;">
-                                <option value="10" selected>10</option>
-                                <option value="15">15</option>
-                                <option value="20">20</option>
-                            </select>
-                        </label>
-                        <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
-                            <input type="checkbox" id="albumOrderToggle" style="margin-right: 4px;">
-                            <span style="font-size: 12px; color: rgba(255,255,255,0.85);">Album order</span>
-                        </label>
-                        <label style="display:flex; align-items:center; gap:6px; flex:1;">
-                            <span style="font-size: 12px; color: rgba(255,255,255,0.85);">Pref</span>
-                            <input id="preferenceInput" type="text" placeholder="optional preference" style="flex:1; min-width:160px; font-size:12px; padding:2px 6px; border-radius:6px; border:1px solid rgba(255,255,255,0.25); background:rgba(0,0,0,0.2); color:#fff;" />
-                        </label>
+            <section class="panel player-panel">
+                <div class="player-head">
+                    <div>
+                        <h2>{{ currentDisplayTitle }}</h2>
+                        <p>{{ currentDisplaySummary }}</p>
                     </div>
-                    <div class="input-row">
-                        <textarea 
-                            id="userInput" 
-                            placeholder="例如：帮我找10首适合学习的纯音乐..."
-                            rows="3"
-                        ></textarea>
-                        <button class="send-btn" id="sendBtn" onclick="sendMessage()">发送</button>
+                    <div class="badge-row">
+                        <span v-if="confidence != null" class="badge">可信度 {{ (confidence * 100).toFixed(0) }}%</span>
+                        <span v-if="recommendationExplanation?.summary" class="badge">{{ recommendationExplanation.summary }}</span>
                     </div>
                 </div>
+                <div class="player-body">
+                    <div v-if="playerSrc" class="player-frame">
+                        <iframe
+                            id="bilibiliPlayer"
+                            :src="playerSrc"
+                            allowfullscreen
+                            allow="autoplay"
+                            sandbox="allow-top-navigation allow-same-origin allow-forms allow-scripts allow-popups"
+                        ></iframe>
+                    </div>
+                    <div v-else class="empty-player">
+                        <div>
+                            <div style="font-size:32px; margin-bottom:8px;">🎵</div>
+                            <div>播放列表为空，等待你的下一条需求。</div>
+                        </div>
+                    </div>
+                </div>
+                <div v-if="recommendationExplanation" class="insight-grid">
+                    <div class="insight">冷启动：{{ recommendationExplanation.coldStart ? '是' : '否' }}</div>
+                    <div class="insight">探索率：{{ recommendationExplanation.explorationRate ?? 'N/A' }}</div>
+                    <div class="insight">匹配因子：{{ (recommendationExplanation.matchFactors || []).join(' / ') || '暂无' }}</div>
+                    <div class="insight">偏好加成：{{ formatPreferenceBonus(recommendationExplanation.preferenceBonus) }}</div>
+                </div>
+            </section>
+
+            <aside class="panel chat-panel">
+                <div class="panel-header">
+                    <div>
+                        <h2>对话区</h2>
+                        <p>输入需求，实时观察 Agent 思考过程。</p>
+                    </div>
+                    <div class="panel-actions">
+                        <button class="btn ghost" @click="createNewConversation">新对话</button>
+                        <button class="btn ghost" @click="toggleExecutionHistory">执行对比</button>
+                    </div>
+                </div>
+                <div class="conversation-strip">
+                    <div v-if="conversations.length === 0" class="conv-chip">暂无对话</div>
+                    <div
+                        v-for="conv in conversations"
+                        :key="conv.id"
+                        class="conv-chip"
+                        :class="{ active: conv.id === currentConversationId }"
+                        @click="switchConversation(conv.id)"
+                    >
+                        <span>ID {{ conv.id }}</span>
+                        <span>{{ formatConversationTime(conv.createdAt) }}</span>
+                        <span class="delete" @click.stop="deleteConversation(conv.id)">×</span>
+                    </div>
+                </div>
+                <div class="messages" ref="messages">
+                    <div v-if="messages.length === 0" class="status-line">欢迎使用，请输入你的音乐需求。</div>
+                    <template v-for="msg in messages" :key="msg.id">
+                        <div v-if="msg.kind === 'status'" class="status-line">{{ msg.text }}</div>
+                        <div v-else class="message" :class="msg.kind">
+                            <div class="avatar">{{ messageAvatar(msg.kind) }}</div>
+                            <div class="bubble">
+                                <div v-if="msg.title" class="bubble-title">{{ msg.title }}</div>
+                                <div>{{ msg.text }}</div>
+                                <div v-if="msg.detail" style="margin-top:6px; color: var(--muted);">{{ msg.detail }}</div>
+                                <ul v-if="msg.items && msg.items.length" class="bubble-list">
+                                    <li v-for="(item, idx) in msg.items" :key="item.url || idx">
+                                        {{ item.title }} - {{ item.author || '未知' }}
+                                    </li>
+                                </ul>
+                                <div v-if="msg.kind === 'recommendation'" class="bubble-actions">
+                                    <button v-if="msg.needsConfirm && !msg.accepted" class="btn" @click="acceptRecommendations(msg)">接受这些推荐</button>
+                                    <span v-else-if="msg.accepted" style="font-size:12px; color:#10b981;">已加入播放列表</span>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+                <div class="input-panel">
+                    <textarea
+                        v-model="userInput"
+                        placeholder="例如：帮我找 10 首适合学习的纯音乐..."
+                        @keydown="onInputKeydown"
+                    ></textarea>
+                    <div class="input-actions">
+                        <span class="switch">
+                            <input type="checkbox" v-model="highRelevanceMode" />
+                            高相关候选需确认
+                        </span>
+                        <button class="btn" @click="sendMessage">发送</button>
+                    </div>
+                </div>
+                <div v-if="executionHistoryVisible" class="execution-panel">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <strong>执行历史对比</strong>
+                        <div style="display:flex; gap:6px;">
+                            <button class="btn ghost" @click="loadRecentExecutions">刷新</button>
+                            <button class="btn ghost" @click="compareSelectedExecutions">对比</button>
+                            <button class="btn ghost" @click="loadObservabilityStats">Stats</button>
+                        </div>
+                    </div>
+                    <div v-if="recentExecutions.length === 0" class="empty-state">暂无执行记录</div>
+                    <table v-else>
+                        <thead>
+                            <tr>
+                                <th>选择</th>
+                                <th>Playlist</th>
+                                <th>Conversation</th>
+                                <th>时间</th>
+                                <th>节点</th>
+                                <th>失败节点</th>
+                                <th>平均耗时</th>
+                                <th>错误</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="exec in recentExecutions" :key="exec.playlistId + '_' + exec.latestExecutionId">
+                                <td>
+                                    <input type="checkbox" :checked="isExecutionSelected(exec)" @change="toggleExecutionSelection(exec, $event)" />
+                                </td>
+                                <td>{{ exec.playlistId }}</td>
+                                <td>{{ exec.conversationId || '' }}</td>
+                                <td>{{ formatExecutionTime(exec.lastTime) }}</td>
+                                <td>{{ exec.nodeExitCount }}</td>
+                                <td>{{ exec.failedNodeCount }}</td>
+                                <td>{{ exec.avgNodeDurationMs }}</td>
+                                <td>{{ exec.hasError ? '⚠️' : '' }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <div v-if="executionCompareRows.length" style="margin-top:8px;">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>指标</th>
+                                    <th>执行 1</th>
+                                    <th>执行 2</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="row in executionCompareRows" :key="row.label">
+                                    <td>{{ row.label }}</td>
+                                    <td>{{ row.v1 }}</td>
+                                    <td>{{ row.v2 }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div v-if="observability" style="font-size:12px; color: var(--muted);">
+                        <div>LLM calls: {{ observability.llmCalls }} | nodes: {{ observability.nodeCount }}</div>
+                        <div>Decision: {{ observability.decisionTotal }} | feedback: {{ observability.feedbackTotal }} | acc: {{ observability.feedbackAccuracy }}</div>
+                        <div>Errors(24h): {{ observability.errorTotal }}</div>
+                        <div>Capabilities: jobQueue={{ observability.capabilities.jobQueueEnabled }}, embeddings={{ observability.capabilities.ollamaEmbeddingsEnabled }}</div>
+                    </div>
+                </div>
+            </aside>
+        </main>
+
+        <footer class="player-bar">
+            <div class="bar-info">
+                <div class="bar-title">{{ currentDisplayTitle }}</div>
+                <div class="bar-sub">{{ currentDisplayMeta }}</div>
+            </div>
+            <div class="bar-controls">
+                <button @click="playPrev">⏮️</button>
+                <button class="play-btn" @click="togglePlayPause">{{ isPlaying ? '暂停' : '播放' }}</button>
+                <button @click="playNext">⏭️</button>
+            </div>
+            <select class="bar-select" v-model="playMode" @change="onPlayModeChange">
+                <option value="normal">顺序播放</option>
+                <option value="shuffle">随机播放</option>
+                <option value="repeat-one">单曲循环</option>
+            </select>
+        </footer>
+
+        <div v-if="whyDetail" class="modal" @click.self="closeWhy">
+            <div class="modal-card">
+                <h3>推荐解释</h3>
+                <div style="font-size:13px; color: var(--muted);">{{ whyDetail.title }}</div>
+                <ul>
+                    <li v-for="(line, idx) in whyDetail.lines" :key="idx">{{ line }}</li>
+                </ul>
+                <button class="btn" @click="closeWhy">关闭</button>
             </div>
         </div>
     </div>
 
-    <!-- 播放控制栏（固定在页面底部） -->
-    <div class="player-controls-bottom">
-        <button id="btnPrev" title="上一首" onclick="playPrev()">⏮️ 上一首</button>
-        <button id="btnPlayPause" title="暂停/播放" onclick="togglePlayPause()">⏸️ 暂停</button>
-        <button id="btnNext" title="下一首" onclick="playNext()">⏭️ 下一首</button>
-        <select id="playMode" title="播放模式" onchange="changePlayMode(this.value)">
-            <option value="normal">🔁 顺序播放</option>
-            <option value="shuffle">🔀 随机播放</option>
-            <option value="repeat-one">🔂 单曲循环</option>
-        </select>
-    </div>
-
-    <!-- 使用本地 WebSocket 客户端库 -->
     <script src="/sockjs.min.js"></script>
     <script src="/stomp.min.js"></script>
-    <script>
-        let stompClient = null;
-        const messagesContainer = document.getElementById('chatMessages');
-        const userInput = document.getElementById('userInput');
-        const sendBtn = document.getElementById('sendBtn');
-        let recentExecutions = [];
-        let selectedExecutionKeys = []; // key = playlistId|executionId
-
-        // 连接 WebSocket
-        function connectWebSocket() {
-            console.log('正在连接 WebSocket...');
-            
-            // 检查库是否加载
-            if (typeof SockJS === 'undefined') {
-                console.error('SockJS 未加载，尝试降级到原生 WebSocket');
-                addStatusMessage('⚠️ 正在尝试备用连接方式...');
-                connectNativeWebSocket();
-                return;
-            }
-            
-            const socket = new SockJS('/ws/chat');
-            stompClient = Stomp.over(socket);
-            
-            // 开启调试日志
-            stompClient.debug = (msg) => console.log('[STOMP Debug]', msg);
-            
-            stompClient.connect({}, (frame) => {
-                console.log('✅ WebSocket 连接成功:', frame);
-                addStatusMessage('✅ 已连接到服务器，可以开始对话了');
-                
-                // 订阅消息
-                stompClient.subscribe('/topic/messages', (message) => {
-                    console.log('📨 收到服务器消息:', message.body);
-                    const data = JSON.parse(message.body);
-                    handleServerMessage(data);
-                });
-            }, (error) => {
-                console.error('❌ WebSocket 连接失败:', error);
-                addStatusMessage('❌ 连接失败，3秒后重试...');
-                setTimeout(connectWebSocket, 3000);
-            });
-        }
-
-        // 降级方案：使用原生 WebSocket（不依赖 SockJS）
-        let nativeWs = null;
-        function connectNativeWebSocket() {
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${protocol}//${window.location.host}/ws-native`;
-            
-            console.log('尝试原生 WebSocket 连接:', wsUrl);
-            addStatusMessage('⚠️ CDN 加载失败，使用备用方案连接中...');
-            
-            // 提示用户：需要后端支持原生 WebSocket
-            addStatusMessage('💡 提示：如仍无法连接，请检查网络或使用 REST API 方式');
-        }
-
-        // 处理服务器消息
-        function handleServerMessage(data) {
-            console.log('收到消息:', data);
-            if (data.type === 'accepted') {
-                const jobId = data.payload && data.payload.jobId ? data.payload.jobId : null;
-                const message = jobId
-                    ? `${data.content || 'Job accepted'} (jobId=${jobId})`
-                    : (data.content || 'Job accepted');
-                addStatusMessage(message);
-            } else if (data.type === 'status') {
-                const jobId = data.payload && data.payload.jobId ? data.payload.jobId : null;
-                addStatusMessage(jobId ? `[${jobId}] ${data.content}` : data.content);
-            } else if (data.type === 'stage_update') {
-                renderStageInsight(data.stage, data.payload, data.content);
-            } else if (data.type === 'search_results') {
-                // 显示搜索结果概要
-                renderSearchResults(data.payload, data.content);
-            } else if (data.type === 'stream_update') {
-                renderVideoJudgementStream(data.stage, data.payload, data.content);
-            } else if (data.type === 'video_accepted') {
-                // 流式接收：立即将采纳的视频加入播放列表
-                if (data.videos && data.videos.length > 0) {
-                    addVideoToPlaylistStreaming(data.videos[0], data.content, data.payload);
-                }
-            } else if (data.type === 'result') {
-                // 最终结果（如果有需要的话）
-                // 显示相关推荐（垃圾桶候选）
-                if (data.trashVideos && data.trashVideos.length > 0) {
-                    const highRelevanceMode = document.getElementById('highRelevanceMode').checked;
-                    addRecommendationMessage(data.trashVideos, highRelevanceMode);
-                }
-                // 也在右侧显示总结
-                if (data.summary) {
-                    addAgentMessage(data.summary, []);
-                }
-            } else if (data.type === 'error') {
-                addStatusMessage('❌ ' + data.content);
-            }
-        }
-
-        // 全局播放列表
-        let currentPlaylist = [];
-        let currentVideoIndex = -1;
-        let playMode = 'normal';      // 'normal' | 'shuffle' | 'repeat-one'
-        let shuffleOrder = [];        // 随机播放顺序
-        let shufflePos = 0;           // 当前在 shuffleOrder 中的位置
-        let dragStartIndex = null;    // 拖动起始索引
-        let isPlaying = false;        // 当前播放状态
-
-        // 流式添加视频到播放列表（逐个添加）
-        function addVideoToPlaylistStreaming(video, message, decisionPayload) {
-            if (!video) return;
-
-            // 检查是否已存在（去重）
-            const exists = currentPlaylist.some(v => v.url === video.url);
-            if (exists) {
-                console.log('视频已存在，跳过：', video.title);
-                return;
-            }
-
-            // Attach decision/explainability payload for later inspection
-            if (decisionPayload) {
-                video.__decision = decisionPayload;
-            }
-
-            // 添加到播放列表
-            currentPlaylist.push(video);
-            const newIndex = currentPlaylist.length - 1;
-            const parsedTrackNo = video && video.trackNo != null ? parseInt(String(video.trackNo), 10) : NaN;
-            const displayNo = Number.isFinite(parsedTrackNo) ? parsedTrackNo : (newIndex + 1);
-
-            // 更新头部信息
-            const headerTitle = video && video.albumTitle ? `Album: ${video.albumTitle}` : '正在构建播放列表...';
-            document.getElementById('videoTitle').textContent = headerTitle;
-            document.getElementById('videoSummary').textContent = video && video.albumTitle
-                ? `Album playlist: ${currentPlaylist.length} tracks`
-                : `已找到 ${currentPlaylist.length} 个相关视频`;
-            document.getElementById('playlistCount').textContent = `共 ${currentPlaylist.length} 首`;
-
-            // 添加视频卡片到列表
-            const videoListContainer = document.getElementById('videoList');
-            const card = document.createElement('div');
-            card.className = 'video-card';
-            card.dataset.index = newIndex;
-            card.draggable = true;
-            card.onclick = () => playVideo(newIndex);
-            
-            // 拖拽事件
-            card.addEventListener('dragstart', handleDragStart);
-            card.addEventListener('dragover', handleDragOver);
-            card.addEventListener('drop', handleDrop);
-            card.addEventListener('dragend', handleDragEnd);
-            
-            card.innerHTML = `
-                <div class="video-title">
-                    <span class="video-index">${displayNo}</span>
-                    ${escapeHtml(video.title)}
-                </div>
-                <div class="video-meta">
-                    <span>👤 ${escapeHtml(video.author || '')}</span>
-                    <span>⏱️ ${escapeHtml(video.duration || '')}</span>
-                    <button class="love-btn" onclick="event.stopPropagation(); showWhy(${newIndex})" title="why recommended">
-                        Why
-                    </button>
-                    <button class="love-btn" onclick="event.stopPropagation(); likeVideo(${video.itemId || 0}, this)" title="喜欢这首歌">
-                        ❤️
-                    </button>
-                </div>
-            `;
-            
-            videoListContainer.appendChild(card);
-
-            // 如果这是第一个视频，自动播放
-            if (currentPlaylist.length === 1) {
-                playVideo(0);
-            }
-
-            // 在聊天区显示消息
-            if (message) {
-                addStatusMessage('✅ ' + message);
-            }
-
-            console.log('流式添加视频：', video.title, `(总计${currentPlaylist.length}首)`);
-        }
-
-        function showWhy(index) {
-            try {
-                if (index == null || index < 0 || index >= currentPlaylist.length) {
-                    alert('No decision info');
-                    return;
-                }
-                const video = currentPlaylist[index];
-                const d = video ? video.__decision : null;
-                if (!d) {
-                    alert('No decision info');
-                    return;
-                }
-                const f = d.features || {};
-                const lines = [
-                    `reasonCode: ${d.reasonCode || ''}`,
-                    `score: ${d.score ?? ''} (base=${d.baseScore ?? ''}, adj=${d.modelAdjustment ?? ''})`,
-                    `semanticScore: ${f.semanticScore ?? ''}`,
-                    `keywordScore: ${(f.titleScore ?? 0) + (f.tagScore ?? 0) + (f.descriptionScore ?? 0) + (f.authorScore ?? 0)}`,
-                    `credibilityScore: ${f.credibilityScore ?? ''}`,
-                    `variant: ${d.variant || ''}`,
-                    `model: ${(d.modelName || '')} ${(d.modelVersion || '')}`
-                ];
-                alert(lines.join('\\n'));
-            } catch (e) {
-                alert('No decision info');
-            }
-        }
-
-        // 更新播放列表（同一个窗口内多次查询会叠加，新结果在上）
-        function updatePlaylist(videos, summary) {
-            if (!videos || videos.length === 0) {
-                return;
-            }
-
-            // 构建去重后的新列表：新结果在前，旧结果在后
-            const existingByUrl = new Map(currentPlaylist.map(v => [v.url, v]));
-            const merged = [];
-
-            videos.forEach(v => {
-                merged.push(v);
-                if (v.url) {
-                    existingByUrl.delete(v.url);
-                }
-            });
-
-            existingByUrl.forEach(v => merged.push(v));
-
-            currentPlaylist = merged;
-            currentVideoIndex = -1;
-
-            // 更新标题和摘要
-            document.getElementById('videoTitle').textContent = summary || '搜索结果';
-            document.getElementById('videoSummary').textContent = `为您找到 ${currentPlaylist.length} 个相关视频`;
-            document.getElementById('playlistCount').textContent = `共 ${currentPlaylist.length} 首`;
-
-            // 渲染视频列表
-            const videoListContainer = document.getElementById('videoList');
-            videoListContainer.innerHTML = '';
-
-            currentPlaylist.forEach((video, index) => {
-                const card = document.createElement('div');
-                card.className = 'video-card';
-                card.dataset.index = index;
-                card.draggable = true;
-                card.onclick = () => playVideo(index);
-                
-                // 拖拽事件
-                card.addEventListener('dragstart', handleDragStart);
-                card.addEventListener('dragover', handleDragOver);
-                card.addEventListener('drop', handleDrop);
-                card.addEventListener('dragend', handleDragEnd);
-                
-                card.innerHTML = `
-                    <div class="video-title">
-                        <span class="video-index">${index + 1}</span>
-                        ${escapeHtml(video.title)}
-                    </div>
-                    <div class="video-meta">
-                        <span>👤 ${escapeHtml(video.author || '')}</span>
-                        <span>⏱️ ${escapeHtml(video.duration || '')}</span>
-                        <button class="love-btn" onclick="event.stopPropagation(); likeVideo(${video.itemId || 0}, this)" title="喜欢这首歌">
-                            ❤️
-                        </button>
-                    </div>
-                `;
-                
-                videoListContainer.appendChild(card);
-            });
-
-            // 自动播放第一个
-            if (currentPlaylist.length > 0) {
-                playVideo(0);
-            }
-        }
-
-        // 点赞视频（增加权重）
-        function likeVideo(itemId, button) {
-            if (!itemId || itemId === 0) {
-                console.warn('itemId 无效，无法点赞');
-                return;
-            }
-            
-            fetch(`/api/playlist/item/${itemId}/like`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'}
-            })
-            .then(response => {
-                if (response.ok) {
-                    // 视觉反馈：变成红色爱心
-                    button.style.color = '#ff4d4d';
-                    button.style.transform = 'scale(1.2)';
-                    setTimeout(() => {
-                        button.style.transform = 'scale(1)';
-                    }, 200);
-                    console.log('点赞成功：itemId=', itemId);
-                } else {
-                    console.error('点赞失败');
-                }
-            })
-            .catch(err => console.error('点赞请求错误：', err));
-        }
-        
-        // 继续添加相似歌曲
-        function continueAdding() {
-            if (currentPlaylist.length === 0) {
-                alert('播放列表为空，请先搜索歌曲');
-                return;
-            }
-            
-            // 提取当前播放列表的特征（使用最常见的歌手/风格）
-            const artists = currentPlaylist.map(v => v.author).filter(a => a);
-            const artistCount = {};
-            artists.forEach(a => {
-                artistCount[a] = (artistCount[a] || 0) + 1;
-            });
-            
-            // 找到出现最多的歌手
-            let mainArtist = '';
-            let maxCount = 0;
-            for (const artist in artistCount) {
-                if (artistCount[artist] > maxCount) {
-                    maxCount = artistCount[artist];
-                    mainArtist = artist;
-                }
-            }
-            
-            const query = mainArtist ? `继续找更多${mainArtist}的歌` : '继续找更多相似的歌';
-            
-            // 在聊天框显示，并发送请求
-            userInput.value = query;
-            sendMessage();
-        }
-        
-        // 保存播放列表
-        function savePlaylist() {
-            if (currentPlaylist.length === 0) {
-                alert('播放列表为空，没有内容可保存');
-                return;
-            }
-            
-            // 生成默认名称：使用日期 + 播放列表数量
-            const now = new Date();
-            const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-            const defaultName = `我的歌单 ${dateStr} (${currentPlaylist.length}首)`;
-            
-            const name = prompt('请给你的歌单起个名字：', defaultName);
-            if (!name) {
-                return; // 用户取消
-            }
-            
-            // TODO: 这里需要获取当前playlistId，目前暂时使用模拟值
-            const playlistId = 1; // 实际应该从后端获取
-            
-            fetch('/api/playlist/save', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({playlistId, name})
-            })
-            .then(response => {
-                if (response.ok) {
-                    alert(`✅ 播放列表“${name}”已保存！`);
-                    addStatusMessage(`💾 已保存播放列表：${name}`);
-                } else {
-                    alert('❌ 保存失败，请稍后重试');
-                }
-            })
-            .catch(err => {
-                console.error('保存请求错误：', err);
-                alert('❌ 保存失败，请检查网络连接');
-            });
-        }
-
-        // 播放指定视频
-        function playVideo(index) {
-            if (index < 0 || index >= currentPlaylist.length) return;
-
-            currentVideoIndex = index;
-            const video = currentPlaylist[index];
-            isPlaying = true;
-
-            try {
-                const tn = video && video.trackNo != null ? parseInt(String(video.trackNo), 10) : NaN;
-                const tnText = Number.isFinite(tn) ? `#${tn} ` : '';
-                const title = video && video.title ? video.title : '';
-                const albumTitle = video && video.albumTitle ? video.albumTitle : '';
-                document.getElementById('videoTitle').textContent = albumTitle ? `Album: ${albumTitle}` : `${tnText}${title}`;
-                document.getElementById('videoSummary').textContent = `${tnText}${title}`;
-            } catch (e) {}
-
-            // 更新选中状态
-            const cards = document.querySelectorAll('.video-card');
-            cards.forEach((card, i) => {
-                if (i === index) {
-                    card.classList.add('active');
-                } else {
-                    card.classList.remove('active');
-                }
-            });
-
-            // 提取 BV 号
-            const bvMatch = video.url.match(/\/video\/(BV[a-zA-Z0-9]+)/);
-            if (bvMatch) {
-                const bvid = bvMatch[1];
-                // 使用 B 站嵌入式播放器，启用自动播放和音量
-                const playerContainer = document.getElementById('playerContainer');
-                playerContainer.innerHTML = `
-                    <iframe 
-                        id="bilibiliPlayer"
-                        src="https://player.bilibili.com/player.html?bvid=${bvid}&page=1&high_quality=1&autoplay=1&muted=0" 
-                        allowfullscreen="true" 
-                        allow="autoplay"
-                        sandbox="allow-top-navigation allow-same-origin allow-forms allow-scripts allow-popups"
-                    ></iframe>
-                `;
-                
-                // 更新外部控制栏的播放模式选择器
-                const playModeSelect = document.getElementById('playMode');
-                if (playModeSelect) {
-                    playModeSelect.value = playMode;
-                }
-            } else {
-                console.warn('无法解析视频 URL:', video.url);
-            }
-        }
-
-        // 发送消息
-        function sendMessage() {
-            const text = userInput.value.trim();
-            if (!text) return;
-
-            addUserMessage(text);
-            
-            if (stompClient && stompClient.connected) {
-                const modeEl = document.getElementById('runMode');
-                const limitEl = document.getElementById('resultLimit');
-                const prefEl = document.getElementById('preferenceInput');
-                const albumOrderEl = document.getElementById('albumOrderToggle');
-                const albumOrder = albumOrderEl ? !!albumOrderEl.checked : false;
-                let mode = modeEl ? (modeEl.value || '') : '';
-                if (albumOrder) {
-                    mode = mode ? `${mode}+album_order` : 'album_order';
-                }
-                const limit = limitEl ? parseInt(limitEl.value || '10', 10) : 10;
-                const preference = prefEl ? (prefEl.value || '').trim() : '';
-                const message = {
-                    type: 'query',
-                    content: text,
-                    limit: Number.isFinite(limit) && limit > 0 ? limit : 10,
-                    payload: {
-                        mode: mode,
-                        limit: Number.isFinite(limit) && limit > 0 ? limit : 10,
-                        preference: preference
-                    }
-                };
-                stompClient.send('/app/chat', {}, JSON.stringify(message));
-            } else {
-                addStatusMessage('连接未建立，请稍后重试');
-            }
-
-            userInput.value = '';
-            userInput.focus();
-        }
-
-        // 添加用户消息
-        function addUserMessage(text) {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'message user';
-            messageDiv.innerHTML = `
-                <div class="message-avatar">👤</div>
-                <div class="message-content">
-                    <div class="text">${escapeHtml(text)}</div>
-                </div>
-            `;
-            messagesContainer.appendChild(messageDiv);
-            scrollToBottom();
-        }
-
-        // 添加 Agent 消息
-        function addAgentMessage(summary, videos) {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'message';
-            
-            messageDiv.innerHTML = `
-                <div class="message-avatar">🤖</div>
-                <div class="message-content">
-                    <div class="text">${escapeHtml(summary)}</div>
-                </div>
-            `;
-            messagesContainer.appendChild(messageDiv);
-            scrollToBottom();
-        }
-
-        // 添加阶段认知产物展示
-        function renderStageInsight(stage, payload, text) {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'message';
-            const title = stage || '阶段更新';
-
-            let humanReadable = '';
-            if (stage === 'INTENT_UNDERSTANDING') {
-                humanReadable = `🎯 目标：${payload.targetCount || 10}首歌曲`;
-                if (payload.albumTitle) humanReadable += ` | Album: ${payload.albumTitle}`;
-                if (payload.albumArtist) humanReadable += ` | Artist: ${payload.albumArtist}`;
-                if (payload.albumOrder) humanReadable += ` | Order: on`;
-                if (payload.preference) humanReadable += ` | 风格：${payload.preference}`;
-            } else if (stage === 'KEYWORD_EXTRACTION') {
-                const kw = payload.keywords ? payload.keywords.join(', ') : '';
-                humanReadable = `🔑 关键词：${kw}`;
-                if (payload.albumTitle) humanReadable += ` | Album: ${payload.albumTitle}`;
-                if (payload.albumOrder) humanReadable += ` | Order: on`;
-            } else if (stage === 'TARGET_EVALUATION') {
-                humanReadable = `✅ 已找到 ${payload.actualCount} 首 / 目标 ${payload.targetCount} 首`;
-                if (!payload.enough) {
-                    humanReadable += ` | 📦 可用候选：${payload.trashCount} 个`;
-                }
-            }
-
-            messageDiv.innerHTML = `
-                <div class="message-avatar">🧠</div>
-                <div class="message-content">
-                    <div class="text"><strong>${escapeHtml(title)}</strong> - ${escapeHtml(text || '')}</div>
-                    ${humanReadable ? `<div style="margin-top:6px;color:#666;font-size:13px;">${escapeHtml(humanReadable)}</div>` : ''}
-                </div>
-            `;
-            messagesContainer.appendChild(messageDiv);
-            scrollToBottom();
-        }
-
-        // 显示搜索结果概要
-        function renderSearchResults(payload, content) {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'message';
-            
-            const totalCount = payload && payload.totalCount ? payload.totalCount : 0;
-            const samples = payload && payload.samples ? payload.samples : [];
-            
-            let samplesHtml = '';
-            if (samples.length > 0) {
-                const sampleList = samples.map((v, idx) => 
-                    `${idx + 1}. ${escapeHtml(v.title)} - ${escapeHtml(v.author || '')} (${escapeHtml(v.duration || '')})`
-                ).join('\n');
-                samplesHtml = `<pre style="margin-top:8px;font-size:12px;white-space:pre-wrap;color:#555;">${sampleList}</pre>`;
-            }
-            
-            messageDiv.innerHTML = `
-                <div class="message-avatar">🔍</div>
-                <div class="message-content">
-                    <div class="text"><strong>搜索完成</strong></div>
-                    <div style="margin-top:6px;color:#666;font-size:13px;">
-                        📦 找到 <strong>${totalCount}</strong> 个视频，正在逐个判断相关度...
-                    </div>
-                    ${samplesHtml}
-                    ${totalCount > 5 ? '<div style="margin-top:4px;font-size:11px;color:#999;">（显示前5个，更多视频正在判断中...）</div>' : ''}
-                </div>
-            `;
-            messagesContainer.appendChild(messageDiv);
-            scrollToBottom();
-        }
-
-        // 添加单个视频判断的流式反馈
-        function renderVideoJudgementStream(stage, payload, text) {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'message';
-            const video = payload && payload.video;
-            const progress = payload && payload.progress;
-            const decision = payload && payload.decision;
-            const quantityEstimation = payload && payload.quantityEstimation;
-
-            const title = video ? video.title : '视频判断';
-            const progressText = progress ? `（累计 ${progress.accumulatedCount || 0} 首 / 目标 ${progress.targetCount || '?'} 首）` : '';
-
-            let statusIcon = '🎧';
-            let statusText = '';
-            if (decision) {
-                if (decision.accepted) {
-                    statusIcon = '✅';
-                    statusText = '已加入播放列表';
-                } else {
-                    statusIcon = '❌';
-                    statusText = '相关度低，跳过';
-                }
-            }
-
-            let durationInfo = '';
-            if (video && video.duration) {
-                durationInfo = ` | 时长：${video.duration}`;
-                if (quantityEstimation && quantityEstimation.isPlaylist) {
-                    durationInfo += ' (合集)';
-                }
-            }
-
-            messageDiv.innerHTML = `
-                <div class="message-avatar">${statusIcon}</div>
-                <div class="message-content">
-                    <div class="text"><strong>${escapeHtml(title)}</strong></div>
-                    <div style="margin-top:4px;color:#666;font-size:12px;">
-                        ${statusText}${escapeHtml(progressText)}${escapeHtml(durationInfo)}
-                    </div>
-                </div>
-            `;
-            messagesContainer.appendChild(messageDiv);
-            scrollToBottom();
-        }
-
-        // 推荐垃圾桶候选
-        function addRecommendationMessage(videos, highRelevanceMode) {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'message';
-            const items = videos.slice(0, 5).map(v => `• ${v.title} - ${v.author || ''}`).join('\n');
-            
-            // 如果是高相关度模式，显示接受按钮；否则自动加入
-            if (highRelevanceMode) {
-                // 高相关度模式：需要手动接受
-                const buttonId = 'acceptBtn_' + Date.now();
-                messageDiv.innerHTML = `
-                    <div class="message-avatar">💡</div>
-                    <div class="message-content">
-                        <div class="text">未完全达到目标，下面是一些相关度稍低但可能有用的候选：</div>
-                        <pre style="margin-top:6px;font-size:12px;white-space:pre-wrap;">${escapeHtml(items)}</pre>
-                        <button id="${buttonId}" style="margin-top:10px;padding:8px 16px;background:#4CAF50;color:white;border:none;border-radius:4px;cursor:pointer;font-size:13px;">
-                            ✓ 接受这些推荐
-                        </button>
-                    </div>
-                `;
-                messagesContainer.appendChild(messageDiv);
-                scrollToBottom();
-                
-                // 绑定按钮点击事件
-                setTimeout(() => {
-                    const btn = document.getElementById(buttonId);
-                    if (btn) {
-                        btn.onclick = () => {
-                            acceptRecommendations(videos);
-                            btn.disabled = true;
-                            btn.textContent = '✓ 已接受';
-                            btn.style.background = '#999';
-                        };
-                    }
-                }, 100);
-            } else {
-                // 非高相关度模式：自动加入
-                messageDiv.innerHTML = `
-                    <div class="message-avatar">💡</div>
-                    <div class="message-content">
-                        <div class="text">未完全达到目标，自动将相关推荐加入播放列表：</div>
-                        <pre style="margin-top:6px;font-size:12px;white-space:pre-wrap;">${escapeHtml(items)}</pre>
-                        <div style="margin-top:8px;color:#4CAF50;font-size:12px;">✓ 已自动添加到播放列表</div>
-                    </div>
-                `;
-                messagesContainer.appendChild(messageDiv);
-                scrollToBottom();
-                
-                // 自动加入播放列表
-                acceptRecommendations(videos);
-            }
-        }
-        
-        // 接受推荐视频并加入播放列表
-        function acceptRecommendations(videos) {
-            if (!videos || videos.length === 0) return;
-            
-            videos.forEach(video => {
-                addVideoToPlaylistStreaming(video, null);
-            });
-            
-            addStatusMessage(`✅ 已添加 ${videos.length} 个推荐视频到播放列表`);
-        }
-
-        // 添加状态消息
-        function addStatusMessage(text) {
-            const statusDiv = document.createElement('div');
-            statusDiv.className = 'status-message';
-            statusDiv.textContent = text;
-            messagesContainer.appendChild(statusDiv);
-            scrollToBottom();
-        }
-
-        // 滚动到底部
-        function scrollToBottom() {
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
-        }
-
-        // HTML 转义
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-
-        // ========== 播放控制函数 ==========
-        
-        // 切换播放/暂停
-        function togglePlayPause() {
-            const iframe = document.getElementById('bilibiliPlayer');
-            if (!iframe) return;
-            
-            if (isPlaying) {
-                // 由于跨域限制，无法直接控制 B 站播放器，只能通过清空 src 停止
-                iframe.setAttribute('data-last-src', iframe.src || '');
-                iframe.src = '';
-                isPlaying = false;
-                const btn = document.getElementById('btnPlayPause');
-                if (btn) btn.innerHTML = '▶️ 播放';
-            } else {
-                // 恢复播放
-                const lastSrc = iframe.getAttribute('data-last-src');
-                if (lastSrc) {
-                    iframe.src = lastSrc;
-                    isPlaying = true;
-                    const btn = document.getElementById('btnPlayPause');
-                    if (btn) btn.innerHTML = '⏸️ 暂停';
-                }
-            }
-        }
-        
-        // 下一首
-        function playNext() {
-            if (!currentPlaylist || currentPlaylist.length === 0) return;
-            
-            if (playMode === 'repeat-one') {
-                // 单曲循环：重播当前
-                playVideo(currentVideoIndex);
-                return;
-            }
-            
-            if (playMode === 'shuffle') {
-                // 随机播放
-                if (!shuffleOrder.length) {
-                    rebuildShuffleOrder();
-                }
-                shufflePos = (shufflePos + 1) % shuffleOrder.length;
-                const nextIndex = shuffleOrder[shufflePos];
-                playVideo(nextIndex);
-                return;
-            }
-            
-            // 顺序播放：尾部回到第一首
-            const len = currentPlaylist.length;
-            const nextIndex = (currentVideoIndex + 1) % len;
-            playVideo(nextIndex);
-        }
-        
-        // 上一首
-        function playPrev() {
-            if (!currentPlaylist || currentPlaylist.length === 0) return;
-            
-            if (playMode === 'repeat-one') {
-                playVideo(currentVideoIndex);
-                return;
-            }
-            
-            if (playMode === 'shuffle') {
-                if (!shuffleOrder.length) {
-                    rebuildShuffleOrder();
-                }
-                shufflePos = (shufflePos - 1 + shuffleOrder.length) % shuffleOrder.length;
-                const prevIndex = shuffleOrder[shufflePos];
-                playVideo(prevIndex);
-                return;
-            }
-            
-            const len = currentPlaylist.length;
-            const prevIndex = (currentVideoIndex - 1 + len) % len;
-            playVideo(prevIndex);
-        }
-        
-        // 切换播放模式
-        function changePlayMode(mode) {
-            playMode = mode;
-            if (mode === 'shuffle') {
-                rebuildShuffleOrder();
-            }
-            console.log('播放模式切换为:', mode);
-        }
-        
-        // 重建随机顺序
-        function rebuildShuffleOrder() {
-            shuffleOrder = [];
-            if (!currentPlaylist || currentPlaylist.length === 0) return;
-            
-            for (let i = 0; i < currentPlaylist.length; i++) {
-                shuffleOrder.push(i);
-            }
-            
-            // Fisher-Yates 洗牌
-            for (let i = shuffleOrder.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [shuffleOrder[i], shuffleOrder[j]] = [shuffleOrder[j], shuffleOrder[i]];
-            }
-            
-            shufflePos = shuffleOrder.indexOf(currentVideoIndex);
-            if (shufflePos === -1) shufflePos = 0;
-        }
-        
-        // ========== 拖拽功能 ==========
-        
-        function handleDragStart(e) {
-            dragStartIndex = Number(this.dataset.index);
-            this.classList.add('dragging');
-            e.dataTransfer.effectAllowed = 'move';
-        }
-        
-        function handleDragOver(e) {
-            e.preventDefault();
-            e.dataTransfer.dropEffect = 'move';
-            this.classList.add('drag-over');
-        }
-        
-        function handleDrop(e) {
-            e.preventDefault();
-            const from = dragStartIndex;
-            const to = Number(this.dataset.index);
-            
-            if (isNaN(from) || isNaN(to) || from === to) {
-                this.classList.remove('drag-over');
-                return;
-            }
-            
-            // 调整 currentPlaylist 顺序
-            const moved = currentPlaylist.splice(from, 1)[0];
-            currentPlaylist.splice(to, 0, moved);
-            
-            // 调整 currentVideoIndex
-            if (currentVideoIndex === from) {
-                currentVideoIndex = to;
-            } else if (currentVideoIndex > from && currentVideoIndex <= to) {
-                currentVideoIndex -= 1;
-            } else if (currentVideoIndex < from && currentVideoIndex >= to) {
-                currentVideoIndex += 1;
-            }
-            
-            // 重新渲染播放列表
-            renderPlaylistFromCurrent();
-            this.classList.remove('drag-over');
-        }
-        
-        function handleDragEnd(e) {
-            this.classList.remove('dragging');
-            document.querySelectorAll('.video-card').forEach(card => {
-                card.classList.remove('drag-over');
-            });
-        }
-        
-        // 从当前播放列表重新渲染
-        function renderPlaylistFromCurrent() {
-            const videoListContainer = document.getElementById('videoList');
-            videoListContainer.innerHTML = '';
-            
-            currentPlaylist.forEach((video, index) => {
-                const card = document.createElement('div');
-                card.className = 'video-card';
-                if (index === currentVideoIndex) {
-                    card.classList.add('active');
-                }
-                card.dataset.index = index;
-                card.draggable = true;
-                card.onclick = () => playVideo(index);
-                
-                // 拖拽事件
-                card.addEventListener('dragstart', handleDragStart);
-                card.addEventListener('dragover', handleDragOver);
-                card.addEventListener('drop', handleDrop);
-                card.addEventListener('dragend', handleDragEnd);
-                
-                card.innerHTML = `
-                    <div class="video-title">
-                        <span class="video-index">${index + 1}</span>
-                        ${escapeHtml(video.title)}
-                    </div>
-                    <div class="video-meta">
-                        <span>👤 ${escapeHtml(video.author || '')}</span>
-                        <span>⏱️ ${escapeHtml(video.duration || '')}</span>
-                        <button class="love-btn" onclick="event.stopPropagation(); likeVideo(${video.itemId || 0}, this)" title="喜欢这首歌">
-                            ❤️
-                        </button>
-                    </div>
-                `;
-                
-                videoListContainer.appendChild(card);
-            });
-        }
-
-        // 回车发送（Shift+Enter 换行）
-        userInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendMessage();
-            }
-        });
-        
-        // 对话窗口管理
-        let currentConversationId = null;
-        let conversations = [];
-        
-        // 加载所有对话窗口
-        function loadConversations() {
-            fetch('/api/conversations')
-                .then(response => response.json())
-                .then(data => {
-                    conversations = data;
-                    renderConversations();
-                    // 找到当前ACTIVE的对话
-                    const activeConv = conversations.find(c => c.status === 'ACTIVE');
-                    if (activeConv) {
-                        currentConversationId = activeConv.id;
-                    }
-                })
-                .catch(err => console.error('加载对话窗口失败：', err));
-        }
-        
-        // 渲染对话窗口列表
-        function renderConversations() {
-            const conversationList = document.getElementById('conversationList');
-            if (conversations.length === 0) {
-                conversationList.innerHTML = '<div style="color: rgba(255,255,255,0.6); font-size: 11px; text-align: center;">暂无对话，点击“新对话”开始</div>';
-                return;
-            }
-            
-            conversationList.innerHTML = '';
-            conversations.forEach(conv => {
-                const item = document.createElement('div');
-                item.className = 'conversation-item';
-                if (conv.id === currentConversationId) {
-                    item.classList.add('active');
-                }
-                
-                const createdAt = new Date(conv.createdAt);
-                const timeStr = `${createdAt.getMonth() + 1}/${createdAt.getDate()} ${String(createdAt.getHours()).padStart(2, '0')}:${String(createdAt.getMinutes()).padStart(2, '0')}`;
-                
-                item.innerHTML = `
-                    <span onclick="switchConversation(${conv.id})">ID:${conv.id} - ${timeStr}</span>
-                    <button class="delete-btn" onclick="event.stopPropagation(); deleteConversation(${conv.id})" title="删除对话">❌</button>
-                `;
-                
-                conversationList.appendChild(item);
-            });
-        }
-        
-        // 创建新对话窗口
-        function createNewConversation() {
-            fetch('/api/conversations', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({name: '新对话'})
-            })
-            .then(response => response.json())
-            .then(conv => {
-                currentConversationId = conv.id;
-                // 清空播放列表和聊天记录
-                currentPlaylist = [];
-                currentVideoIndex = -1;
-                document.getElementById('videoList').innerHTML = '';
-                document.getElementById('playlistCount').textContent = '暂无视频';
-                document.getElementById('chatMessages').innerHTML = '<div class="status-message">新对话已创建，请输入你的音乐需求</div>';
-                
-                // 重新加载对话列表
-                loadConversations();
-                addStatusMessage('✨ 已创建新对话！');
-            })
-            .catch(err => {
-                console.error('创建对话失败：', err);
-                alert('❌ 创建对话失败');
-            });
-        }
-        
-        // 切换对话窗口
-        function switchConversation(conversationId) {
-            if (conversationId === currentConversationId) {
-                return; // 已经是当前对话
-            }
-            
-            fetch(`/api/conversations/${conversationId}/switch`, {
-                method: 'PUT'
-            })
-            .then(() => {
-                currentConversationId = conversationId;
-                // 清空播放列表和聊天记录（实际应该加载对话的历史数据）
-                currentPlaylist = [];
-                currentVideoIndex = -1;
-                document.getElementById('videoList').innerHTML = '';
-                document.getElementById('playlistCount').textContent = '暂无视频';
-                document.getElementById('chatMessages').innerHTML = '<div class="status-message">已切换到对话 ID:' + conversationId + '</div>';
-                
-                // 重新渲染对话列表
-                renderConversations();
-                addStatusMessage(`🔄 已切换到对话 ID:${conversationId}`);
-            })
-            .catch(err => {
-                console.error('切换对话失败：', err);
-                alert('❌ 切换对话失败');
-            });
-        }
-        
-        // 删除对话窗口
-        function deleteConversation(conversationId) {
-            if (!confirm('确定要删除这个对话吗？')) {
-                return;
-            }
-            
-            fetch(`/api/conversations/${conversationId}`, {
-                method: 'DELETE'
-            })
-            .then(() => {
-                if (conversationId === currentConversationId) {
-                    // 如果删除的是当前对话，创建新对话
-                    createNewConversation();
-                } else {
-                    // 只是删除，重新加载列表
-                    loadConversations();
-                }
-                addStatusMessage('🗑️ 对话已删除');
-            })
-            .catch(err => {
-                console.error('删除对话失败：', err);
-                alert('❌ 删除对话失败');
-            });
-        }
-
-        // 页面加载时连接 WebSocket 和加载对话窗口
-        window.addEventListener('load', () => {
-            connectWebSocket();
-            loadConversations();
-        });
-
-        // ========== 执行历史对比视图 ==========
-        function toggleExecutionHistory() {
-            const panel = document.getElementById('executionHistoryPanel');
-            if (!panel) return;
-            const isHidden = panel.style.display === 'none' || panel.style.display === '';
-            panel.style.display = isHidden ? 'block' : 'none';
-            if (isHidden && (!recentExecutions || recentExecutions.length === 0)) {
-                loadRecentExecutions();
-            }
-        }
-
-        function loadRecentExecutions() {
-            fetch('/api/playlist/observability/recent-executions?limit=10')
-                .then(resp => resp.json())
-                .then(data => {
-                    recentExecutions = Array.isArray(data) ? data : [];
-                    selectedExecutionKeys = [];
-                    renderExecutionHistory();
-                })
-                .catch(err => {
-                    console.error('加载执行历史失败:', err);
-                    const content = document.getElementById('executionHistoryContent');
-                    if (content) {
-                        content.innerHTML = '<div style="color:#c00;">加载执行历史失败</div>';
-                    }
-                });
-        }
-
-        function loadObservabilityStats() {
-            const panel = document.getElementById('observabilityStats');
-            if (!panel) return;
-            panel.innerHTML = '<div style="color:#999;">Loading stats...</div>';
-
-            Promise.all([
-                fetch('/api/playlist/observability/prompt-versions').then(r => r.json()),
-                fetch('/api/playlist/observability/llm-stats').then(r => r.json()),
-                fetch('/api/playlist/observability/decision-stats').then(r => r.json()),
-                fetch('/api/playlist/observability/error-stats?hours=24').then(r => r.json()),
-                fetch('/api/playlist/observability/capabilities').then(r => r.json())
-            ]).then(([promptVersions, llmStats, decisionStats, errorStats, capabilities]) => {
-                const pv = promptVersions || {};
-                const llm = llmStats || {};
-                const dec = decisionStats || {};
-                const err = errorStats || {};
-                const cap = capabilities || {};
-
-                const totalCalls = llm.totalCalls ?? '';
-                const nodeCount = llm.nodes ? llm.nodes.length : 0;
-
-                const totalDecisions = dec.totalDecisions ?? '';
-                const feedbackTotal = dec.feedbackTotal ?? '';
-                const feedbackAccuracy = dec.feedbackAccuracy ?? '';
-
-                const totalErrors = err.totalErrors ?? '';
-
-                let html = '<div style="border:1px solid #eee; border-radius:8px; padding:8px;">';
-                html += '<div style="font-weight:600; margin-bottom:6px;">Observability</div>';
-                html += `<div style="margin-bottom:6px;"><strong>LLM</strong> calls=${totalCalls}, nodes=${nodeCount}</div>`;
-                html += `<div style="margin-bottom:6px;"><strong>Decision</strong> total=${totalDecisions}, feedback=${feedbackTotal}, accuracy=${feedbackAccuracy}</div>`;
-                html += `<div style="margin-bottom:6px;"><strong>Errors(24h)</strong> total=${totalErrors}</div>`;
-                html += `<div style="margin-bottom:6px;"><strong>Capabilities</strong> jobQueue=${cap.jobQueueEnabled}, embeddings=${cap.ollamaEmbeddingsEnabled}, extBroker=${cap.wsExternalBroker}</div>`;
-                html += '<div><strong>Prompt versions</strong><div style="margin-top:4px; display:flex; flex-wrap:wrap; gap:6px;">';
-                Object.keys(pv).sort().forEach(k => {
-                    html += `<span style="border:1px solid #ddd; border-radius:999px; padding:2px 8px; font-size:12px;">${escapeHtml(k)}=${escapeHtml(pv[k])}</span>`;
-                });
-                html += '</div></div>';
-                html += '</div>';
-                panel.innerHTML = html;
-            }).catch(err => {
-                console.error('load stats failed:', err);
-                panel.innerHTML = '<div style="color:#c00;">Load stats failed</div>';
-            });
-        }
-
-        function renderExecutionHistory() {
-            const content = document.getElementById('executionHistoryContent');
-            if (!content) return;
-            if (!recentExecutions || recentExecutions.length === 0) {
-                content.innerHTML = '<div style="color:#999;">暂无执行记录</div>';
-                return;
-            }
-            let html = '<table style="width:100%; border-collapse:collapse; font-size:12px;">';
-            html += '<thead><tr>' +
-                '<th style="border-bottom:1px solid #eee; padding:4px;">选择</th>' +
-                '<th style="border-bottom:1px solid #eee; padding:4px;">Playlist</th>' +
-                '<th style="border-bottom:1px solid #eee; padding:4px;">Conversation</th>' +
-                '<th style="border-bottom:1px solid #eee; padding:4px;">时间</th>' +
-                '<th style="border-bottom:1px solid #eee; padding:4px;">节点数</th>' +
-                '<th style="border-bottom:1px solid #eee; padding:4px;">失败节点</th>' +
-                '<th style="border-bottom:1px solid #eee; padding:4px;">平均耗时(ms)</th>' +
-                '<th style="border-bottom:1px solid #eee; padding:4px;">错误</th>' +
-                '</tr></thead><tbody>';
-            recentExecutions.forEach(exec => {
-                const timeStr = exec.lastTime ? exec.lastTime.replace('T', ' ') : '';
-                const key = exec.playlistId + '|' + (exec.latestExecutionId || '');
-                const checked = selectedExecutionKeys.includes(key) ? 'checked' : '';
-                html += `<tr>
-                    <td style="border-bottom:1px solid #f5f5f5; padding:4px; text-align:center;">
-                        <input type="checkbox" ${checked} onchange="onExecutionRowSelect('${exec.playlistId}','${exec.latestExecutionId || ''}', this)">
-                    </td>
-                    <td style="border-bottom:1px solid #f5f5f5; padding:4px;">${exec.playlistId}</td>
-                    <td style="border-bottom:1px solid #f5f5f5; padding:4px;">${exec.conversationId || ''}</td>
-                    <td style="border-bottom:1px solid #f5f5f5; padding:4px;">${timeStr}</td>
-                    <td style="border-bottom:1px solid #f5f5f5; padding:4px;">${exec.nodeExitCount}</td>
-                    <td style="border-bottom:1px solid #f5f5f5; padding:4px;">${exec.failedNodeCount}</td>
-                    <td style="border-bottom:1px solid #f5f5f5; padding:4px;">${exec.avgNodeDurationMs}</td>
-                    <td style="border-bottom:1px solid #f5f5f5; padding:4px;">${exec.hasError ? '⚠️' : ''}</td>
-                </tr>`;
-            });
-            html += '</tbody></table>';
-            content.innerHTML = html;
-        }
-
-        function onExecutionRowSelect(playlistId, executionId, checkbox) {
-            const key = playlistId + '|' + (executionId || '');
-            if (checkbox.checked) {
-                if (!executionId) {
-                    alert('该执行缺少 executionId，无法对比');
-                    checkbox.checked = false;
-                    return;
-                }
-                selectedExecutionKeys.push(key);
-                if (selectedExecutionKeys.length > 2) {
-                    const removed = selectedExecutionKeys.shift();
-                    console.log('自动取消选择:', removed);
-                    renderExecutionHistory();
-                }
-            } else {
-                selectedExecutionKeys = selectedExecutionKeys.filter(k => k !== key);
-            }
-        }
-
-        function compareSelectedExecutions() {
-            if (selectedExecutionKeys.length !== 2) {
-                alert('请先选择两个执行进行对比');
-                return;
-            }
-            const [k1, k2] = selectedExecutionKeys;
-            const [p1, e1] = k1.split('|');
-            const [p2, e2] = k2.split('|');
-            if (!e1 || !e2) {
-                alert('所选执行缺少 executionId，无法对比');
-                return;
-            }
-            Promise.all([
-                fetch(`/api/playlist/debug/trace?playlistId=${p1}&executionId=${encodeURIComponent(e1)}`).then(r => r.json()),
-                fetch(`/api/playlist/debug/trace?playlistId=${p2}&executionId=${encodeURIComponent(e2)}`).then(r => r.json())
-            ]).then(traces => {
-                renderExecutionCompare(traces[0], traces[1]);
-            }).catch(err => {
-                console.error('加载执行详情失败:', err);
-                const panel = document.getElementById('executionCompareResult');
-                if (panel) {
-                    panel.innerHTML = '<div style="color:#c00;">加载执行详情失败</div>';
-                }
-            });
-        }
-
-        function renderExecutionCompare(t1, t2) {
-            const panel = document.getElementById('executionCompareResult');
-            if (!panel) return;
-            if (!t1 || !t2) {
-                panel.innerHTML = '<div style="color:#999;">执行详情为空</div>';
-                return;
-            }
-            const metrics = [
-                { key: 'executionId', label: '执行ID' },
-                { key: 'playlistId', label: 'PlaylistID' },
-                { key: 'conversationId', label: 'ConversationID' },
-                { key: 'status', label: '状态' },
-                { key: 'fsmState', label: 'FSM状态' },
-                { key: 'totalDurationMs', label: '总耗时(ms)' },
-                { key: 'graphVersion', label: '策略/图版本' },
-                { key: 'contextVersion', label: '上下文版本' },
-                { key: 'nodeCount', label: '节点数' },
-                { key: 'edgeCount', label: '跳转次数' }
-            ];
-            const nodeCount1 = t1.nodeTraces ? t1.nodeTraces.length : 0;
-            const nodeCount2 = t2.nodeTraces ? t2.nodeTraces.length : 0;
-            const edgeCount1 = t1.edgeTraces ? t1.edgeTraces.length : 0;
-            const edgeCount2 = t2.edgeTraces ? t2.edgeTraces.length : 0;
-
-            let html = '<table style="width:100%; border-collapse:collapse; font-size:12px; margin-top:6px;">';
-            html += '<thead><tr>' +
-                '<th style="border-bottom:1px solid #eee; padding:4px;">指标</th>' +
-                '<th style="border-bottom:1px solid #eee; padding:4px;">执行1</th>' +
-                '<th style="border-bottom:1px solid #eee; padding:4px;">执行2</th>' +
-                '</tr></thead><tbody>';
-            metrics.forEach(m => {
-                let v1, v2;
-                if (m.key === 'nodeCount') {
-                    v1 = nodeCount1;
-                    v2 = nodeCount2;
-                } else if (m.key === 'edgeCount') {
-                    v1 = edgeCount1;
-                    v2 = edgeCount2;
-                } else {
-                    v1 = t1[m.key] != null ? t1[m.key] : '';
-                    v2 = t2[m.key] != null ? t2[m.key] : '';
-                }
-                html += `<tr>
-                    <td style="border-bottom:1px solid #f5f5f5; padding:4px;">${m.label}</td>
-                    <td style="border-bottom:1px solid #f5f5f5; padding:4px;">${escapeHtml(String(v1))}</td>
-                    <td style="border-bottom:1px solid #f5f5f5; padding:4px;">${escapeHtml(String(v2))}</td>
-                </tr>`;
-            });
-            html += '</tbody></table>';
-            panel.innerHTML = html;
-        }
-    </script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script src="/app.js"></script>
 </body>
 </html>
