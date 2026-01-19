@@ -7,7 +7,6 @@ import com.example.bilibilimusic.dto.PlaylistResponse;
 import com.example.bilibilimusic.service.job.PlaylistJobQueueService.Snapshot;
 import com.example.bilibilimusic.service.job.PlaylistJobQueueService.Status;
 import com.example.bilibilimusic.service.websocket.WsTopicPublisher;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -21,15 +20,23 @@ import java.util.Map;
 import java.util.concurrent.Executor;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class PlaylistJobWorker {
 
     private final PlaylistJobQueueService jobQueueService;
     private final PlaylistAgent playlistAgent;
     private final WsTopicPublisher wsTopicPublisher;
-    @Qualifier("jobQueueExecutor")
     private final Executor executor;
+
+    public PlaylistJobWorker(PlaylistJobQueueService jobQueueService,
+                             PlaylistAgent playlistAgent,
+                             WsTopicPublisher wsTopicPublisher,
+                             @Qualifier("jobQueueExecutor") Executor executor) {
+        this.jobQueueService = jobQueueService;
+        this.playlistAgent = playlistAgent;
+        this.wsTopicPublisher = wsTopicPublisher;
+        this.executor = executor;
+    }
 
     @Value("${job.queue.enabled:true}")
     private boolean enabled;

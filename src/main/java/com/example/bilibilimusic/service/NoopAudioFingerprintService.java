@@ -1,7 +1,7 @@
 package com.example.bilibilimusic.service;
 
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 /**
@@ -11,7 +11,7 @@ import org.springframework.stereotype.Service;
  */
 @Slf4j
 @Service
-@ConditionalOnMissingBean(AudioFingerprintService.class)
+@ConditionalOnProperty(name = "audio.fingerprint.enabled", havingValue = "false", matchIfMissing = true)
 public class NoopAudioFingerprintService implements AudioFingerprintService {
 
     @Override
