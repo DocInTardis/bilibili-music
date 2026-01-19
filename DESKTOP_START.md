@@ -30,4 +30,4 @@ Copy `scripts/windows/Start-Bilibili-Music.cmd` to your Desktop and double-click
 ## Notes
 
 - First run may require Playwright browser install (see `USAGE.md`).
-- Default port is `8080` (override with `SERVER_PORT`).
+- Default port is `8083` (override with `SERVER_PORT`).

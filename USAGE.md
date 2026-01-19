@@ -50,7 +50,7 @@ mvn spring-boot:run
 
 ### 5. 打开浏览器
 
-访问：http://localhost:8080
+访问：http://localhost:8083
 
 ## 使用方法
 
@@ -114,7 +114,7 @@ ollama serve
 
 ### WebSocket 连接失败
 
-检查浏览器控制台，确认 WebSocket 连接到 ws://localhost:8080/ws/chat
+检查浏览器控制台，确认 WebSocket 连接到 ws://localhost:8083/ws/chat
 
 ## 后续扩展
 

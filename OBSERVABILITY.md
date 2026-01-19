@@ -9,8 +9,8 @@ This project exposes:
 
 Start the app, then open:
 
-- Prometheus scrape endpoint: `http://localhost:8080/actuator/prometheus`
-- Actuator metrics endpoint: `http://localhost:8080/actuator/metrics`
+- Prometheus scrape endpoint: `http://localhost:8083/actuator/prometheus`
+- Actuator metrics endpoint: `http://localhost:8083/actuator/metrics`
 
 ## Tracing (OTLP export)
 
@@ -53,4 +53,3 @@ docker compose -f observability/docker-compose.observability.yml up -d
 Then open Grafana:
 
 - `http://localhost:3000` (admin / admin)
-

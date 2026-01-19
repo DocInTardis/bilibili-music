@@ -27,7 +27,7 @@ $env:MYSQL_PASSWORD="root"
 mvn spring-boot:run
 ```
 
-Open: `http://localhost:8080`
+Open: `http://localhost:8083`
 
 ## Optional: observability stack
 

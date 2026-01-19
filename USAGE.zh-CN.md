@@ -42,7 +42,7 @@ $env:MYSQL_PASSWORD="root"
 mvn spring-boot:run
 ```
 
-打开：`http://localhost:8080`
+打开：`http://localhost:8083`
 
 ## 常用环境变量
 

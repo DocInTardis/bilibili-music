@@ -142,7 +142,7 @@ if (-not $env:JAVA_HOME) {
 }
 Ensure-Command "java" "Install JDK 17 and ensure 'java' is on PATH."
 
-$serverPort = 8080
+$serverPort = 8083
 if ($env:SERVER_PORT) {
     [void][int]::TryParse($env:SERVER_PORT, [ref]$serverPort)
 }
