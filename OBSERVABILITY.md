@@ -11,6 +11,7 @@ Start the app, then open:
 
 - Prometheus scrape endpoint: `http://localhost:8083/actuator/prometheus`
 - Actuator metrics endpoint: `http://localhost:8083/actuator/metrics`
+- Tracing is disabled by default (`TRACING_ENABLED=false`). Set `TRACING_ENABLED=true` and `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` to enable.
 
 ## Tracing (OTLP export)
 
