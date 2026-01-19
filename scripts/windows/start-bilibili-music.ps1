@@ -17,7 +17,7 @@ function Import-EnvFile([string]$path) {
         if ($idx -le 0) { return }
         $key = $line.Substring(0, $idx).Trim()
         $value = $line.Substring($idx + 1).Trim()
-        if (($value.StartsWith("\"") -and $value.EndsWith("\"")) -or ($value.StartsWith("'") -and $value.EndsWith("'"))) {
+        if (($value.StartsWith('"') -and $value.EndsWith('"')) -or ($value.StartsWith("'") -and $value.EndsWith("'"))) {
             $value = $value.Substring(1, $value.Length - 2)
         }
         if ($key.Length -gt 0) {
