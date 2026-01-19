@@ -69,7 +69,7 @@ public class Mp3DownloadService {
 
                 Path temp = resolveTempPath(resolvedBvid);
                 ensureDir(temp.getParent());
-                downloadFile(audioUrl, temp);
+                downloadFile(audioUrl, temp, resolvedBvid);
                 convertToMp3(temp, target);
                 Files.deleteIfExists(temp);
                 log.info("[MP3] 下载完成 bvid={} -> {}", resolvedBvid, target);
@@ -123,7 +123,7 @@ public class Mp3DownloadService {
         }
         String api = "https://api.bilibili.com/x/player/playurl?bvid=" + encode(bvid)
             + "&cid=" + cid + "&fnval=16";
-        HttpResponse<String> response = httpClient().send(buildRequest(api), HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response = httpClient().send(buildRequest(api, bvid), HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() / 100 != 2) {
             throw new IllegalStateException("playurl 请求失败: " + response.statusCode());
         }
@@ -143,7 +143,7 @@ public class Mp3DownloadService {
 
     private long fetchCid(String bvid) throws IOException, InterruptedException {
         String api = "https://api.bilibili.com/x/web-interface/view?bvid=" + encode(bvid);
-        HttpResponse<String> response = httpClient().send(buildRequest(api), HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response = httpClient().send(buildRequest(api, bvid), HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() / 100 != 2) {
             throw new IllegalStateException("view 请求失败: " + response.statusCode());
         }
@@ -179,15 +179,21 @@ public class Mp3DownloadService {
         return url;
     }
 
-    private void downloadFile(String url, Path target) throws IOException, InterruptedException {
-        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+    private void downloadFile(String url, Path target, String bvid) throws IOException, InterruptedException {
+        String referer = buildReferer(bvid);
+        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(url))
             .GET()
             .timeout(Duration.ofMillis(Math.max(5_000L, downloadTimeoutMs)))
             .header("User-Agent", USER_AGENT)
-            .build();
+            .header("Accept", "*/*");
+        if (referer != null) {
+            builder.header("Referer", referer);
+            builder.header("Origin", "https://www.bilibili.com");
+        }
+        HttpRequest request = builder.build();
         HttpResponse<Path> response = httpClient().send(request, HttpResponse.BodyHandlers.ofFile(target));
         if (response.statusCode() / 100 != 2) {
-            throw new IllegalStateException("音频下载失败: " + response.statusCode());
+            throw new IllegalStateException("??????: " + response.statusCode());
         }
     }
 
@@ -206,7 +212,12 @@ public class Mp3DownloadService {
 
         ProcessBuilder pb = new ProcessBuilder(cmd);
         pb.redirectErrorStream(true);
-        Process process = pb.start();
+        Process process;
+        try {
+            process = pb.start();
+        } catch (IOException e) {
+            throw new IllegalStateException("ffmpeg ?????????? FFMPEG_PATH", e);
+        }
         String outputLog = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         int code = process.waitFor();
         if (code != 0 || !Files.exists(output)) {
@@ -220,12 +231,25 @@ public class Mp3DownloadService {
             .build();
     }
 
-    private HttpRequest buildRequest(String url) {
-        return HttpRequest.newBuilder(URI.create(url))
+    private HttpRequest buildRequest(String url, String bvid) {
+        String referer = buildReferer(bvid);
+        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(url))
             .GET()
             .timeout(Duration.ofMillis(Math.max(5_000L, downloadTimeoutMs)))
             .header("User-Agent", USER_AGENT)
-            .build();
+            .header("Accept", "*/*");
+        if (referer != null) {
+            builder.header("Referer", referer);
+            builder.header("Origin", "https://www.bilibili.com");
+        }
+        return builder.build();
+    }
+
+    private String buildReferer(String bvid) {
+        if (bvid == null || bvid.isBlank()) {
+            return "https://www.bilibili.com";
+        }
+        return "https://www.bilibili.com/video/" + bvid;
     }
 
     private String encode(String value) {

@@ -293,8 +293,16 @@ createApp({
                 throw new Error('视频为空');
             }
             this.ensureVideoBvid(video);
+            if (video._mp3Error) {
+                throw new Error(video._mp3Error);
+            }
             if (video._mp3Url) {
                 return video._mp3Url;
+            }
+            if (!video.bvid && !video.url) {
+                const msg = '缺少视频地址，无法下载 MP3';
+                video._mp3Error = msg;
+                throw new Error(msg);
             }
             const resp = await fetch('/api/media/mp3', {
                 method: 'POST',
@@ -305,11 +313,28 @@ createApp({
                 })
             });
             if (!resp.ok) {
-                throw new Error('MP3 下载失败');
+                let msg = 'MP3 下载失败';
+                try {
+                    const data = await resp.json();
+                    if (data && (data.message || data.error)) {
+                        msg = data.message || data.error;
+                    }
+                } catch (e) {
+                    try {
+                        const text = await resp.text();
+                        if (text) {
+                            msg = text;
+                        }
+                    } catch (ignored) {}
+                }
+                video._mp3Error = msg;
+                throw new Error(msg);
             }
             const data = await resp.json();
             if (!data || !data.downloadUrl) {
-                throw new Error('MP3 地址缺失');
+                const msg = 'MP3 地址缺失';
+                video._mp3Error = msg;
+                throw new Error(msg);
             }
             video._mp3Url = data.downloadUrl;
             return data.downloadUrl;

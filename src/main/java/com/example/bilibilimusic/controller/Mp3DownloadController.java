@@ -29,16 +29,27 @@ public class Mp3DownloadController {
     private final Mp3DownloadService downloadService;
 
     @PostMapping
-    public ResponseEntity<Mp3DownloadResponse> download(@RequestBody Mp3DownloadRequest request) {
-        Mp3DownloadService.Mp3DownloadResult result = downloadService.downloadMp3(request.bvid, request.url);
-        Path file = result.file();
-        long size = safeSize(file);
-        return ResponseEntity.ok(new Mp3DownloadResponse(
-            result.bvid(),
-            file.toString(),
-            "/api/media/mp3/" + result.bvid(),
-            size
-        ));
+    public ResponseEntity<?> download(@RequestBody Mp3DownloadRequest request) {
+        try {
+            Mp3DownloadService.Mp3DownloadResult result = downloadService.downloadMp3(request.bvid, request.url);
+            Path file = result.file();
+            long size = safeSize(file);
+            return ResponseEntity.ok(new Mp3DownloadResponse(
+                result.bvid(),
+                file.toString(),
+                "/api/media/mp3/" + result.bvid(),
+                size
+            ));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(new ErrorResponse("INVALID_REQUEST", e.getMessage()));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(new ErrorResponse("MP3_UNAVAILABLE", e.getMessage()));
+        } catch (Exception e) {
+            log.error("MP3 下载失败", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(new ErrorResponse("MP3_FAILED", "下载 MP3 失败"));
+        }
     }
 
     @GetMapping("/{bvid}")
@@ -97,6 +108,16 @@ public class Mp3DownloadController {
             this.path = path;
             this.downloadUrl = downloadUrl;
             this.size = size;
+        }
+    }
+
+    public static class ErrorResponse {
+        public String error;
+        public String message;
+
+        public ErrorResponse(String error, String message) {
+            this.error = error;
+            this.message = message;
         }
     }
 }
