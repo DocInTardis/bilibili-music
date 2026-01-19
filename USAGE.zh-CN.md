@@ -55,6 +55,7 @@ mvn spring-boot:run
 
 - 本地开发环境：`DEV_SETUP.md`
 - 桌面一键启动（Windows）：`DESKTOP_START.md`
+- Desktop launcher: auto-starts Ollama for localhost; disable with `BILIBILI_MUSIC_OLLAMA_AUTO_START=false`
 - 可观测（Prometheus/Grafana/OTel）：`OBSERVABILITY.md`
 
 

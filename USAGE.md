@@ -44,6 +44,8 @@ mvn spring-boot:run
 - Create Desktop shortcut: `powershell -ExecutionPolicy Bypass -File scripts/windows/Install-Desktop-Shortcut.ps1`
 - Or double-click: `scripts/windows/Start-Bilibili-Music.cmd`
 - Optional env file: copy `.env.desktop.example` to `.env.desktop`
+- Auto-starts Ollama when `OLLAMA_BASE_URL` is localhost (disable with `BILIBILI_MUSIC_OLLAMA_AUTO_START=false`)
+- Rebuilds when sources change or repo is dirty; otherwise runs the latest jar
 - More docs: `DESKTOP_START.md`
 
 ### 5. 打开浏览器

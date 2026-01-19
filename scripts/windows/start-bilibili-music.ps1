@@ -33,6 +33,44 @@ function Ensure-Command([string]$name, [string]$help) {
     }
 }
 
+function Get-LatestSourceTime([string]$repoRoot) {
+    $paths = @(
+        (Join-Path $repoRoot "src"),
+        (Join-Path $repoRoot "pom.xml")
+    )
+    $latest = $null
+    foreach ($p in $paths) {
+        if (-not (Test-Path $p)) { continue }
+        $items = Get-ChildItem -Path $p -Recurse -File -ErrorAction SilentlyContinue
+        if (-not $items) { continue }
+        $candidate = $items | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($candidate) {
+            if (-not $latest -or $candidate.LastWriteTime -gt $latest) {
+                $latest = $candidate.LastWriteTime
+            }
+        }
+    }
+    return $latest
+}
+
+function Get-GitStatusDirty([string]$repoRoot) {
+    $git = Get-Command git -ErrorAction SilentlyContinue
+    if (-not $git) { return $false }
+    if (-not (Test-Path (Join-Path $repoRoot ".git"))) { return $false }
+    $status = & git -C $repoRoot status --porcelain
+    if ($LASTEXITCODE -ne 0) { return $false }
+    return -not [string]::IsNullOrWhiteSpace($status)
+}
+
+function Get-HeadCommitTime([string]$repoRoot) {
+    $git = Get-Command git -ErrorAction SilentlyContinue
+    if (-not $git) { return $null }
+    $ts = & git -C $repoRoot show -s --format=%ct HEAD
+    if ($LASTEXITCODE -ne 0) { return $null }
+    if ([string]::IsNullOrWhiteSpace($ts)) { return $null }
+    return [DateTimeOffset]::FromUnixTimeSeconds([int64]$ts).UtcDateTime
+}
+
 function Get-JarPath([string]$repoRoot) {
     $target = Join-Path $repoRoot "target"
     if (-not (Test-Path $target)) { return $null }
@@ -42,6 +80,56 @@ function Get-JarPath([string]$repoRoot) {
         Select-Object -First 1
     if (-not $jar) { return $null }
     return $jar.FullName
+}
+
+function Test-OllamaRunning([string]$baseUrl) {
+    try {
+        $pingUrl = ($baseUrl.TrimEnd("/") + "/api/tags")
+        $null = Invoke-RestMethod -Uri $pingUrl -Method Get -TimeoutSec 2
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Start-OllamaIfNeeded([string]$baseUrl, [string]$model) {
+    $uri = $null
+    try {
+        $uri = [uri]$baseUrl
+    } catch {
+        return
+    }
+    if ($uri.Host -ne "localhost" -and $uri.Host -ne "127.0.0.1") {
+        return
+    }
+
+    $auto = $true
+    if ($env:BILIBILI_MUSIC_OLLAMA_AUTO_START) {
+        $v = $env:BILIBILI_MUSIC_OLLAMA_AUTO_START.ToLowerInvariant()
+        $auto = -not ($v -eq "0" -or $v -eq "false" -or $v -eq "no")
+    }
+    if (-not $auto) {
+        return
+    }
+
+    if (Test-OllamaRunning $baseUrl) {
+        Write-Host "[DesktopStart] Ollama already running."
+        return
+    }
+
+    Ensure-Command "ollama" "Install Ollama and ensure 'ollama' is on PATH."
+    Write-Host "[DesktopStart] Starting Ollama..."
+    Start-Process -FilePath "ollama" -ArgumentList "serve" -WindowStyle Minimized | Out-Null
+
+    $deadline = (Get-Date).AddSeconds(20)
+    while ((Get-Date) -lt $deadline) {
+        if (Test-OllamaRunning $baseUrl) {
+            Write-Host "[DesktopStart] Ollama is ready."
+            return
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    Write-Host "[DesktopStart] Warning: Ollama did not become ready in time."
 }
 
 $repoRoot = Get-RepoRoot
@@ -65,8 +153,37 @@ if ($env:BILIBILI_MUSIC_FORCE_REBUILD) {
     $forceRebuild = ($v -eq "1" -or $v -eq "true" -or $v -eq "yes")
 }
 
+$ollamaBase = "http://localhost:11434"
+if ($env:OLLAMA_BASE_URL) {
+    $ollamaBase = $env:OLLAMA_BASE_URL
+}
+$ollamaModel = "qwen:7b"
+if ($env:OLLAMA_MODEL) {
+    $ollamaModel = $env:OLLAMA_MODEL
+}
+Start-OllamaIfNeeded $ollamaBase $ollamaModel
+
 $jarPath = Get-JarPath $repoRoot
-if ($forceRebuild -or -not $jarPath) {
+$dirty = Get-GitStatusDirty $repoRoot
+$headCommitTime = Get-HeadCommitTime $repoRoot
+$latestSourceTime = Get-LatestSourceTime $repoRoot
+$jarTime = $null
+if ($jarPath) {
+    $jarTime = (Get-Item $jarPath).LastWriteTime
+}
+
+$needsRebuild = $forceRebuild -or -not $jarPath
+if (-not $needsRebuild -and $dirty) {
+    $needsRebuild = $true
+}
+if (-not $needsRebuild -and $headCommitTime -and $jarTime -and $jarTime.ToUniversalTime() -lt $headCommitTime) {
+    $needsRebuild = $true
+}
+if (-not $needsRebuild -and $latestSourceTime -and $jarTime -and $latestSourceTime -gt $jarTime) {
+    $needsRebuild = $true
+}
+
+if ($needsRebuild) {
     Ensure-Command "mvn" "Install Maven and ensure 'mvn' is on PATH."
     Write-Host "[DesktopStart] Building jar (skip tests)..."
     mvn -q -DskipTests package

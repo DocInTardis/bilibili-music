@@ -22,8 +22,12 @@ Copy `scripts/windows/Start-Bilibili-Music.cmd` to your Desktop and double-click
 2. Fill in `OLLAMA_*` / `REDIS_*` / `MYSQL_*` as needed
 3. Launch again
 
+## Launcher logic (Windows)
+
+- Auto-starts Ollama when `OLLAMA_BASE_URL` points to localhost (disable with `BILIBILI_MUSIC_OLLAMA_AUTO_START=false`).
+- Rebuilds when sources change, repo is dirty, or jar is missing; otherwise runs the latest jar.
+
 ## Notes
 
 - First run may require Playwright browser install (see `USAGE.md`).
 - Default port is `8080` (override with `SERVER_PORT`).
-
