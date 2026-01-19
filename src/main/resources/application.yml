@@ -165,6 +165,8 @@ media:
   download-dir: ${MEDIA_DOWNLOAD_DIR:downloads}
   ffmpeg-path: ${FFMPEG_PATH:ffmpeg}
   download-timeout-ms: ${MEDIA_DOWNLOAD_TIMEOUT_MS:30000}
+  yt-dlp-path: ${YTDLP_PATH:yt-dlp}
+  yt-dlp-cookies: ${YTDLP_COOKIES:}
 
 logging:
   level:

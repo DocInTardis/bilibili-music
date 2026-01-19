@@ -46,9 +46,13 @@ public class VideoRelevanceScorer {
         "vlog", "日常", "开箱", "测评"
     );
     
-    // 时长异常阈值（毫秒）
-    private static final long DURATION_TOO_LONG_MS = 10 * 60 * 1000; // 10分钟
-    private static final long DURATION_TOO_SHORT_MS = 30 * 1000;      // 30秒
+    // Duration scoring buckets (ms)
+    private static final long DURATION_HALF_SONG_MS = 90 * 1000;
+    private static final long DURATION_FULL_SONG_MIN_MS = 2 * 60 * 1000;
+    private static final long DURATION_FULL_SONG_MAX_MS = 6 * 60 * 1000;
+    private static final long DURATION_TWO_SONG_MAX_MS = 10 * 60 * 1000;
+    private static final long DURATION_LONG_MAX_MS = 20 * 60 * 1000;
+    private static final long DURATION_VERY_LONG_MS = 30 * 60 * 1000;
     
     // 合集/串烧关键词
     private static final List<String> COLLECTION_KEYWORDS = Arrays.asList(
@@ -188,17 +192,12 @@ public class VideoRelevanceScorer {
             reasons.add("单一艺人: +2");
         }
             
-        // 7. 合作视频 (根据用户偏好决定)
+        // 7. Collaboration penalty (always downweight)
         if (isCollaboration(video)) {
-            if (intent.isSingleArtistOnly()) {
-                totalScore -= 3;
-                features.setCollaborationAdjust(-3);
-                reasons.add("合作视频（用户要求单一艺人）: -3");
-            } else {
-                totalScore += 2;
-                features.setCollaborationAdjust(2);
-                reasons.add("合作视频: +2");
-            }
+            int penalty = (intent != null && intent.isSingleArtistOnly()) ? -5 : -2;
+            totalScore += penalty;
+            features.setCollaborationAdjust(penalty);
+            reasons.add(String.format("collaboration penalty: %d", penalty));
         }
         
         // 7.5 序列特征：连续跳过同一艺人时快速压低权重
@@ -229,12 +228,12 @@ public class VideoRelevanceScorer {
             }
         }
             
-        // 9. 时长异常 (-2)
-        int durationPenalty = albumMode ? 0 : scoreDuration(video.getDuration());
-        features.setDurationPenalty(durationPenalty);
-        if (durationPenalty < 0) {
-            totalScore += durationPenalty;
-            reasons.add(String.format("时长异常: %d", durationPenalty));
+        // 9. Duration weighting
+        int durationAdjust = albumMode ? 0 : scoreDuration(video.getDuration());
+        features.setDurationPenalty(durationAdjust);
+        if (durationAdjust != 0) {
+            totalScore += durationAdjust;
+            reasons.add(String.format("duration weight: %+d", durationAdjust));
         }
             
         // 10. 可信度加分（播放量、评论数）
@@ -589,26 +588,41 @@ public class VideoRelevanceScorer {
     }
     
     /**
-     * 时长评分
+     * Duration weighting
      */
     private int scoreDuration(String durationStr) {
         if (durationStr == null || durationStr.isBlank()) {
             return 0;
         }
-        
+
         try {
             long durationMs = parseDuration(durationStr);
-            
-            if (durationMs > DURATION_TOO_LONG_MS) {
-                return -2; // 超过10分钟
-            } else if (durationMs < DURATION_TOO_SHORT_MS) {
-                return -1; // 少于30秒
+            if (durationMs <= 0L) {
+                return 0;
             }
-            
+            if (durationMs < DURATION_HALF_SONG_MS) {
+                return -6;
+            }
+            if (durationMs < DURATION_FULL_SONG_MIN_MS) {
+                return -3;
+            }
+            if (durationMs <= DURATION_FULL_SONG_MAX_MS) {
+                return 3;
+            }
+            if (durationMs <= DURATION_TWO_SONG_MAX_MS) {
+                return 1;
+            }
+            if (durationMs <= DURATION_LONG_MAX_MS) {
+                return -1;
+            }
+            if (durationMs <= DURATION_VERY_LONG_MS) {
+                return -3;
+            }
+            return -5;
         } catch (Exception e) {
             log.warn("无法解析时长: {}", durationStr);
         }
-        
+
         return 0;
     }
     

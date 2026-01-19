@@ -38,6 +38,12 @@ public class Mp3DownloadService {
     @Value("${media.ffmpeg-path:ffmpeg}")
     private String ffmpegPath;
 
+    @Value("${media.yt-dlp-path:yt-dlp}")
+    private String ytDlpPath;
+
+    @Value("${media.yt-dlp-cookies:}")
+    private String ytDlpCookies;
+
     @Value("${media.download-timeout-ms:30000}")
     private long downloadTimeoutMs;
 
@@ -62,20 +68,48 @@ public class Mp3DownloadService {
                 return new Mp3DownloadResult(resolvedBvid, target);
             }
             try {
-                String audioUrl = fetchAudioUrl(resolvedBvid);
-                if (audioUrl == null || audioUrl.isBlank()) {
-                    throw new IllegalStateException("未获取到音频地址");
+                Exception primaryError = null;
+                try {
+                    String audioUrl = fetchAudioUrl(resolvedBvid);
+                    if (audioUrl == null || audioUrl.isBlank()) {
+                        throw new IllegalStateException("audio url not found");
+                    }
+
+                    Path temp = resolveTempPath(resolvedBvid);
+                    ensureDir(temp.getParent());
+                    downloadFile(audioUrl, temp, resolvedBvid);
+                    convertToMp3(temp, target);
+                    Files.deleteIfExists(temp);
+                    log.info("[MP3] download ok bvid={} -> {}", resolvedBvid, target);
+                    return new Mp3DownloadResult(resolvedBvid, target);
+                } catch (Exception e) {
+                    primaryError = e;
+                    log.warn("[MP3] primary download failed, fallback to yt-dlp. bvid={} err={}", resolvedBvid, e.toString());
+                    try {
+                        Files.deleteIfExists(resolveTempPath(resolvedBvid));
+                    } catch (IOException ignore) {
+                        // ignore cleanup errors
+                    }
                 }
 
-                Path temp = resolveTempPath(resolvedBvid);
-                ensureDir(temp.getParent());
-                downloadFile(audioUrl, temp, resolvedBvid);
-                convertToMp3(temp, target);
-                Files.deleteIfExists(temp);
-                log.info("[MP3] 下载完成 bvid={} -> {}", resolvedBvid, target);
-                return new Mp3DownloadResult(resolvedBvid, target);
-            } catch (Exception e) {
-                throw new IllegalStateException("下载 MP3 失败: " + e.getMessage(), e);
+                Exception fallbackError = null;
+                try {
+                    downloadWithYtDlp(resolvedBvid, url, target);
+                    log.info("[MP3] yt-dlp ok bvid={} -> {}", resolvedBvid, target);
+                    return new Mp3DownloadResult(resolvedBvid, target);
+                } catch (Exception e) {
+                    fallbackError = e;
+                }
+
+                StringBuilder message = new StringBuilder("mp3 download failed");
+                if (primaryError != null && primaryError.getMessage() != null) {
+                    message.append(": ").append(primaryError.getMessage());
+                }
+                if (fallbackError != null && fallbackError.getMessage() != null) {
+                    message.append(" | yt-dlp: ").append(fallbackError.getMessage());
+                }
+                throw new IllegalStateException(message.toString(),
+                    fallbackError != null ? fallbackError : primaryError);
             } finally {
                 locks.remove(resolvedBvid);
             }
@@ -193,7 +227,7 @@ public class Mp3DownloadService {
         HttpRequest request = builder.build();
         HttpResponse<Path> response = httpClient().send(request, HttpResponse.BodyHandlers.ofFile(target));
         if (response.statusCode() / 100 != 2) {
-            throw new IllegalStateException("??????: " + response.statusCode());
+            throw new IllegalStateException("download failed: " + response.statusCode());
         }
     }
 
@@ -216,13 +250,85 @@ public class Mp3DownloadService {
         try {
             process = pb.start();
         } catch (IOException e) {
-            throw new IllegalStateException("ffmpeg ?????????? FFMPEG_PATH", e);
+            throw new IllegalStateException("ffmpeg not available, check FFMPEG_PATH", e);
         }
         String outputLog = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         int code = process.waitFor();
         if (code != 0 || !Files.exists(output)) {
-            throw new IllegalStateException("ffmpeg 转码失败: " + outputLog);
+            throw new IllegalStateException("ffmpeg convert failed: " + outputLog);
         }
+    }
+
+    private void downloadWithYtDlp(String bvid, String url, Path target) throws IOException, InterruptedException {
+        if (ytDlpPath == null || ytDlpPath.isBlank()) {
+            throw new IllegalStateException("yt-dlp not configured");
+        }
+        String targetUrl = (url == null || url.isBlank()) ? buildReferer(bvid) : url;
+        String outputTemplate = buildYtDlpTemplate(target, bvid);
+        List<String> cmd = new ArrayList<>();
+        cmd.add(ytDlpPath);
+        cmd.add("--no-playlist");
+        cmd.add("-x");
+        cmd.add("--audio-format");
+        cmd.add("mp3");
+        cmd.add("--audio-quality");
+        cmd.add("0");
+        cmd.add("--no-part");
+        cmd.add("--no-warnings");
+        cmd.add("-o");
+        cmd.add(outputTemplate);
+        if (ytDlpCookies != null && !ytDlpCookies.isBlank()) {
+            cmd.add("--cookies");
+            cmd.add(ytDlpCookies);
+        }
+        if (shouldPassFfmpegLocation()) {
+            cmd.add("--ffmpeg-location");
+            cmd.add(ffmpegPath);
+        }
+        cmd.add(targetUrl);
+
+        ProcessBuilder pb = new ProcessBuilder(cmd);
+        pb.redirectErrorStream(true);
+        Process process = pb.start();
+        String outputLog = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        long timeoutMs = Math.max(downloadTimeoutMs, 120_000L);
+        boolean finished = process.waitFor(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+        if (!finished) {
+            process.destroyForcibly();
+            throw new IllegalStateException("yt-dlp timeout");
+        }
+        int code = process.exitValue();
+        if (code != 0) {
+            throw new IllegalStateException("yt-dlp failed: " + outputLog);
+        }
+        if (!Files.exists(target)) {
+            Path candidate = target.getParent() != null
+                ? target.getParent().resolve(bvid + ".mp3")
+                : Path.of(bvid + ".mp3");
+            if (Files.exists(candidate) && !candidate.equals(target)) {
+                Files.move(candidate, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+        }
+        if (!Files.exists(target)) {
+            throw new IllegalStateException("yt-dlp did not produce mp3");
+        }
+    }
+
+    private String buildYtDlpTemplate(Path target, String bvid) {
+        Path dir = target.getParent();
+        String baseName = (bvid == null || bvid.isBlank()) ? "bilibili_audio" : bvid;
+        if (dir == null) {
+            return baseName + ".%(ext)s";
+        }
+        return dir.resolve(baseName + ".%(ext)s").toString();
+    }
+
+    private boolean shouldPassFfmpegLocation() {
+        if (ffmpegPath == null || ffmpegPath.isBlank()) {
+            return false;
+        }
+        String lower = ffmpegPath.toLowerCase();
+        return ffmpegPath.contains("\\") || ffmpegPath.contains("/") || lower.endsWith(".exe");
     }
 
     private HttpClient httpClient() {
