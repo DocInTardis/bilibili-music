@@ -335,7 +335,7 @@ createApp({
         },
         extractBvid(url) {
             if (!url) return null;
-            const match = url.match(/\\/video\\/(BV[a-zA-Z0-9]+)/);
+            const match = url.match(/\/video\/(BV[a-zA-Z0-9]+)/);
             return match ? match[1] : null;
         },
         buildPlayerSrc(bvid) {
