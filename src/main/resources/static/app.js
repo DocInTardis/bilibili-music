@@ -313,8 +313,7 @@ createApp({
             return custom || video.title || '未命名视频';
         },
         getDisplayTitle(video) {
-            const title = this.getVideoTitle(video);
-            return this.summarizeTitle(title);
+            return this.getVideoTitle(video);
         },
         summarizeTitle(title) {
             if (!title) return '未命名视频';
