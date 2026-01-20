@@ -148,13 +148,36 @@ public class DatabaseService {
         }
     }
 
-    @Transactional
     public void addMusicToPlaylist(Long playlistId, String title, String artist,
                                    Video video, String reason, Integer position) {
         if (!isDbUsable()) {
             updateMemoryPlaylistCount(playlistId);
             return;
         }
+        addMusicToPlaylistDb(playlistId, title, artist, video, reason, position);
+    }
+
+    public void addVideoToPlaylistByUrl(Long playlistId, String url, String reason) {
+        if (url == null || url.isBlank()) {
+            return;
+        }
+        if (!isDbUsable()) {
+            VideoInfo videoInfo = bilibiliSearchService.fetchByUrl(url);
+            if (videoInfo == null) {
+                log.warn("Failed to fetch video info by url={}", url);
+                return;
+            }
+            videoInfo.setBvid(extractBvid(url));
+            saveOrUpdateMemoryVideo(videoInfo);
+            updateMemoryPlaylistCount(playlistId);
+            return;
+        }
+        addVideoToPlaylistByUrlDb(playlistId, url, reason);
+    }
+
+    @Transactional
+    protected void addMusicToPlaylistDb(Long playlistId, String title, String artist,
+                                        Video video, String reason, Integer position) {
         try {
             MusicUnitEntity musicUnit = new MusicUnitEntity();
             musicUnit.setTitle(title);
@@ -187,21 +210,7 @@ public class DatabaseService {
     }
 
     @Transactional
-    public void addVideoToPlaylistByUrl(Long playlistId, String url, String reason) {
-        if (url == null || url.isBlank()) {
-            return;
-        }
-        if (!isDbUsable()) {
-            VideoInfo videoInfo = bilibiliSearchService.fetchByUrl(url);
-            if (videoInfo == null) {
-                log.warn("Failed to fetch video info by url={}", url);
-                return;
-            }
-            videoInfo.setBvid(extractBvid(url));
-            saveOrUpdateMemoryVideo(videoInfo);
-            updateMemoryPlaylistCount(playlistId);
-            return;
-        }
+    protected void addVideoToPlaylistByUrlDb(Long playlistId, String url, String reason) {
         try {
             VideoInfo videoInfo = bilibiliSearchService.fetchByUrl(url);
             if (videoInfo == null) {
@@ -220,7 +229,7 @@ public class DatabaseService {
                 .last("LIMIT 1");
             PlaylistItem last = playlistItemMapper.selectOne(wrapper);
             int nextPosition = (last != null && last.getPosition() != null) ? last.getPosition() + 1 : 1;
-            addMusicToPlaylist(playlistId, videoInfo.getTitle(), videoInfo.getAuthor(), video, reason, nextPosition);
+            addMusicToPlaylistDb(playlistId, videoInfo.getTitle(), videoInfo.getAuthor(), video, reason, nextPosition);
         } catch (Exception e) {
             markDbFailed("addVideoToPlaylistByUrl", e);
         }

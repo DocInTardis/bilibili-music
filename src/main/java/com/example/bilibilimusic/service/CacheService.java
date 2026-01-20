@@ -7,6 +7,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Service;
@@ -14,6 +15,7 @@ import org.springframework.stereotype.Service;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -32,6 +34,12 @@ public class CacheService {
     
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
+
+    @Value("${REDIS_ENABLED:true}")
+    private boolean redisEnabled;
+
+    private final AtomicBoolean redisAvailable = new AtomicBoolean(true);
+    private final AtomicBoolean redisFailureLogged = new AtomicBoolean(false);
     
     // 缓存 TTL 配置（秒）
     private static final long QUERY_CACHE_TTL = 3600;        // 1小时
@@ -58,6 +66,9 @@ public class CacheService {
      * 缓存搜索结果
      */
     public void cacheSearchResults(String query, List<VideoInfo> videos) {
+        if (!isRedisUsable()) {
+            return;
+        }
         try {
             String key = generateQueryCacheKey(query);
             String json = objectMapper.writeValueAsString(videos);
@@ -65,6 +76,8 @@ public class CacheService {
             log.debug("[Cache] 缓存搜索结果: query={}, videos={}", query, videos.size());
         } catch (JsonProcessingException e) {
             log.warn("[Cache] 序列化搜索结果失败: {}", e.getMessage());
+        } catch (Exception e) {
+            markRedisFailed("cacheSearchResults", e);
         }
     }
     
@@ -73,6 +86,9 @@ public class CacheService {
      */
     @SuppressWarnings("unchecked")
     public List<VideoInfo> getCachedSearchResults(String query) {
+        if (!isRedisUsable()) {
+            return null;
+        }
         try {
             String key = generateQueryCacheKey(query);
             String json = stringRedisTemplate.opsForValue().get(key);
@@ -83,7 +99,7 @@ public class CacheService {
                 return videos;
             }
         } catch (Exception e) {
-            log.warn("[Cache] 反序列化搜索结果失败: {}", e.getMessage());
+            markRedisFailed("getCachedSearchResults", e);
         }
         return null;
     }
@@ -92,6 +108,9 @@ public class CacheService {
      * 缓存关键词提取结果
      */
     public void cacheKeywords(String query, List<String> keywords) {
+        if (!isRedisUsable()) {
+            return;
+        }
         try {
             String key = "keywords:" + md5(normalizeQuery(query));
             String json = objectMapper.writeValueAsString(keywords);
@@ -99,6 +118,8 @@ public class CacheService {
             log.debug("[Cache] 缓存关键词: query={}, keywords={}", query, keywords);
         } catch (JsonProcessingException e) {
             log.warn("[Cache] 序列化关键词失败: {}", e.getMessage());
+        } catch (Exception e) {
+            markRedisFailed("cacheKeywords", e);
         }
     }
     
@@ -107,6 +128,9 @@ public class CacheService {
      */
     @SuppressWarnings("unchecked")
     public List<String> getCachedKeywords(String query) {
+        if (!isRedisUsable()) {
+            return null;
+        }
         try {
             String key = "keywords:" + md5(normalizeQuery(query));
             String json = stringRedisTemplate.opsForValue().get(key);
@@ -117,7 +141,7 @@ public class CacheService {
                 return keywords;
             }
         } catch (Exception e) {
-            log.warn("[Cache] 反序列化关键词失败: {}", e.getMessage());
+            markRedisFailed("getCachedKeywords", e);
         }
         return null;
     }
@@ -137,6 +161,9 @@ public class CacheService {
      * 按视频粒度清空该视频的所有 LLM 判断缓存（用于智能失效）
      */
     public void evictLLMJudgementsForVideo(String bvid) {
+        if (!isRedisUsable()) {
+            return;
+        }
         if (bvid == null || bvid.isBlank()) {
             return;
         }
@@ -148,7 +175,7 @@ public class CacheService {
                 log.info("[Cache] 智能失效：清理视频的LLM判断缓存 bvid={}, keys={}", bvid, keys.size());
             }
         } catch (Exception e) {
-            log.warn("[Cache] 智能失效清理LLM缓存失败: bvid={}, error={}", bvid, e.getMessage());
+            markRedisFailed("evictLLMJudgementsForVideo", e);
         }
     }
         
@@ -156,6 +183,9 @@ public class CacheService {
      * 缓存 LLM 判断结果
      */
     public void cacheLLMJudgement(String bvid, UserIntent intent, VideoRelevanceScorer.ScoringResult result) {
+        if (!isRedisUsable()) {
+            return;
+        }
         try {
             String key = generateLLMCacheKey(bvid, intent);
             String json = objectMapper.writeValueAsString(result);
@@ -163,6 +193,8 @@ public class CacheService {
             log.debug("[Cache] 缓存LLM判断: bvid={}, score={}", bvid, result.getScore());
         } catch (JsonProcessingException e) {
             log.warn("[Cache] 序列化LLM判断结果失败: {}", e.getMessage());
+        } catch (Exception e) {
+            markRedisFailed("cacheLLMJudgement", e);
         }
     }
     
@@ -170,6 +202,9 @@ public class CacheService {
      * 获取缓存的 LLM 判断结果
      */
     public VideoRelevanceScorer.ScoringResult getCachedLLMJudgement(String bvid, UserIntent intent) {
+        if (!isRedisUsable()) {
+            return null;
+        }
         try {
             String key = generateLLMCacheKey(bvid, intent);
             String json = stringRedisTemplate.opsForValue().get(key);
@@ -179,7 +214,7 @@ public class CacheService {
                 return result;
             }
         } catch (Exception e) {
-            log.warn("[Cache] 反序列化LLM判断结果失败: {}", e.getMessage());
+            markRedisFailed("getCachedLLMJudgement", e);
         }
         return null;
     }
@@ -197,23 +232,30 @@ public class CacheService {
      * 增加用户偏好权重（ZSet）
      */
     public void incrementPreference(Long conversationId, String preferenceType, String target, int deltaWeight) {
+        if (!isRedisUsable()) {
+            return;
+        }
         String key = getUserPreferenceKey(conversationId);
         String member = preferenceType + ":" + target.toLowerCase();
         
         // 使用 ZSet 的 incrementScore
-        Double newScore = stringRedisTemplate.opsForZSet().incrementScore(key, member, deltaWeight);
-        
-        // 设置过期时间
-        stringRedisTemplate.expire(key, PREFERENCE_CACHE_TTL, TimeUnit.SECONDS);
-        
-        log.debug("[Cache] 增加用户偏好: conversationId={}, {}={}, newWeight={}", 
-            conversationId, preferenceType, target, newScore);
+        try {
+            Double newScore = stringRedisTemplate.opsForZSet().incrementScore(key, member, deltaWeight);
+            stringRedisTemplate.expire(key, PREFERENCE_CACHE_TTL, TimeUnit.SECONDS);
+            log.debug("[Cache] 增加用户偏好: conversationId={}, {}={}, newWeight={}", 
+                conversationId, preferenceType, target, newScore);
+        } catch (Exception e) {
+            markRedisFailed("incrementPreference", e);
+        }
     }
     
     /**
      * 获取艺人偏好权重（从 ZSet）
      */
     public Map<String, Integer> getArtistPreferences(Long conversationId) {
+        if (!isRedisUsable()) {
+            return Collections.emptyMap();
+        }
         return getPreferencesByType(conversationId, "artist");
     }
     
@@ -221,6 +263,9 @@ public class CacheService {
      * 获取关键词偏好权重（从 ZSet）
      */
     public Map<String, Integer> getKeywordPreferences(Long conversationId) {
+        if (!isRedisUsable()) {
+            return Collections.emptyMap();
+        }
         return getPreferencesByType(conversationId, "keyword");
     }
     
@@ -228,11 +273,19 @@ public class CacheService {
      * 根据类型获取偏好权重
      */
     private Map<String, Integer> getPreferencesByType(Long conversationId, String type) {
+        if (!isRedisUsable()) {
+            return Collections.emptyMap();
+        }
         String key = getUserPreferenceKey(conversationId);
         
         // 获取所有成员和分数
-        Set<ZSetOperations.TypedTuple<String>> tuples = stringRedisTemplate.opsForZSet()
-            .rangeWithScores(key, 0, -1);
+        Set<ZSetOperations.TypedTuple<String>> tuples;
+        try {
+            tuples = stringRedisTemplate.opsForZSet().rangeWithScores(key, 0, -1);
+        } catch (Exception e) {
+            markRedisFailed("getPreferencesByType", e);
+            return Collections.emptyMap();
+        }
         
         if (tuples == null || tuples.isEmpty()) {
             return Collections.emptyMap();
@@ -258,11 +311,20 @@ public class CacheService {
      * 获取 Top N 偏好
      */
     public Map<String, Integer> getTopPreferences(Long conversationId, int topN) {
+        if (!isRedisUsable()) {
+            return Collections.emptyMap();
+        }
         String key = getUserPreferenceKey(conversationId);
         
         // 按分数倒序获取 Top N
-        Set<ZSetOperations.TypedTuple<String>> tuples = stringRedisTemplate.opsForZSet()
-            .reverseRangeWithScores(key, 0, topN - 1);
+        Set<ZSetOperations.TypedTuple<String>> tuples;
+        try {
+            tuples = stringRedisTemplate.opsForZSet()
+                .reverseRangeWithScores(key, 0, topN - 1);
+        } catch (Exception e) {
+            markRedisFailed("getTopPreferences", e);
+            return Collections.emptyMap();
+        }
         
         if (tuples == null || tuples.isEmpty()) {
             return Collections.emptyMap();
@@ -282,9 +344,16 @@ public class CacheService {
      * 清除用户偏好缓存
      */
     public void clearUserPreference(Long conversationId) {
+        if (!isRedisUsable()) {
+            return;
+        }
         String key = getUserPreferenceKey(conversationId);
-        stringRedisTemplate.delete(key);
-        log.debug("[Cache] 清除用户偏好缓存: conversationId={}", conversationId);
+        try {
+            stringRedisTemplate.delete(key);
+            log.debug("[Cache] 清除用户偏好缓存: conversationId={}", conversationId);
+        } catch (Exception e) {
+            markRedisFailed("clearUserPreference", e);
+        }
     }
     
     // ==================== 4. 行为序列特征缓存 ====================
@@ -293,6 +362,9 @@ public class CacheService {
      * 更新连续负向行为计数（例如连续跳过同一艺人）
      */
     public void updateConsecutiveNegativeCount(Long conversationId, String targetType, String targetId, boolean negative) {
+        if (!isRedisUsable()) {
+            return;
+        }
         if (conversationId == null || targetType == null || targetId == null) {
             return;
         }
@@ -305,7 +377,7 @@ public class CacheService {
             }
             stringRedisTemplate.expire(key, BEHAVIOR_SEQ_TTL, TimeUnit.SECONDS);
         } catch (Exception e) {
-            log.warn("[Cache] 更新连续负向行为计数失败: key={}", key, e);
+            markRedisFailed("updateConsecutiveNegativeCount", e);
         }
     }
     
@@ -313,6 +385,9 @@ public class CacheService {
      * 获取连续负向行为计数
      */
     public int getConsecutiveNegativeCount(Long conversationId, String targetType, String targetId) {
+        if (!isRedisUsable()) {
+            return 0;
+        }
         if (conversationId == null || targetType == null || targetId == null) {
             return 0;
         }
@@ -324,7 +399,7 @@ public class CacheService {
             }
             return Integer.parseInt(value);
         } catch (Exception e) {
-            log.warn("[Cache] 读取连续负向行为计数失败: key={}", key, e);
+            markRedisFailed("getConsecutiveNegativeCount", e);
             return 0;
         }
     }
@@ -353,6 +428,9 @@ public class CacheService {
      * 缓存 Prompt 执行结果（例如总结文案、结构化 JSON 文本等）。
      */
     public void cachePromptResult(String cacheKey, String result) {
+        if (!isRedisUsable()) {
+            return;
+        }
         if (cacheKey == null || cacheKey.isBlank() || result == null) {
             return;
         }
@@ -360,7 +438,7 @@ public class CacheService {
             stringRedisTemplate.opsForValue().set(cacheKey, result, PROMPT_RESULT_CACHE_TTL, TimeUnit.SECONDS);
             log.debug("[Cache] 缓存 Prompt 结果: key={}", cacheKey);
         } catch (Exception e) {
-            log.warn("[Cache] 缓存 Prompt 结果失败: key={}", cacheKey, e);
+            markRedisFailed("cachePromptResult", e);
         }
     }
     
@@ -368,6 +446,9 @@ public class CacheService {
      * 获取缓存的 Prompt 执行结果。
      */
     public String getCachedPromptResult(String cacheKey) {
+        if (!isRedisUsable()) {
+            return null;
+        }
         if (cacheKey == null || cacheKey.isBlank()) {
             return null;
         }
@@ -378,7 +459,7 @@ public class CacheService {
             }
             return value;
         } catch (Exception e) {
-            log.warn("[Cache] 读取 Prompt 结果缓存失败: key={}", cacheKey, e);
+            markRedisFailed("getCachedPromptResult", e);
             return null;
         }
     }
@@ -396,6 +477,9 @@ public class CacheService {
     }
 
     public void cacheVideoDetail(VideoInfo video) {
+        if (!isRedisUsable()) {
+            return;
+        }
         if (video == null) {
             return;
         }
@@ -416,11 +500,14 @@ public class CacheService {
             stringRedisTemplate.opsForValue().set(key, json, VIDEO_DETAIL_CACHE_TTL, TimeUnit.SECONDS);
             log.debug("[Cache] Cache video detail: key={}, bvid={}", key, video.getBvid());
         } catch (Exception e) {
-            log.warn("[Cache] Cache video detail failed: key={}, error={}", key, e.getMessage());
+            markRedisFailed("cacheVideoDetail", e);
         }
     }
 
     public VideoInfo getCachedVideoDetail(String bvid, String url) {
+        if (!isRedisUsable()) {
+            return null;
+        }
         String key = buildVideoDetailCacheKey(bvid, url);
         if (key == null) {
             return null;
@@ -434,11 +521,25 @@ public class CacheService {
             log.debug("[Cache] Hit video detail cache: key={}, bvid={}", key, bvid);
             return cached;
         } catch (Exception e) {
-            log.warn("[Cache] Read video detail cache failed: key={}, error={}", key, e.getMessage());
+            markRedisFailed("getCachedVideoDetail", e);
             return null;
         }
     }
     
+    private boolean isRedisUsable() {
+        return redisEnabled && redisAvailable.get();
+    }
+
+    private void markRedisFailed(String op, Exception e) {
+        redisAvailable.set(false);
+        if (redisFailureLogged.compareAndSet(false, true)) {
+            log.warn("[Cache] Redis unavailable, disable cache. op={}, reason={}", op,
+                e != null ? e.getMessage() : "unknown");
+        } else {
+            log.debug("[Cache] op={} failed: {}", op, e != null ? e.getMessage() : "unknown");
+        }
+    }
+
     // ==================== 工具方法 ====================
     
     /**

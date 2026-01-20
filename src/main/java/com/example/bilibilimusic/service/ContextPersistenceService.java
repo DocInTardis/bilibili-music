@@ -9,12 +9,14 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RBucket;
 import org.redisson.api.RedissonClient;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
@@ -39,6 +41,12 @@ public class ContextPersistenceService {
     
     private final RedissonClient redissonClient;
     private final ObjectMapper objectMapper;
+
+    @Value("${REDIS_ENABLED:true}")
+    private boolean redisEnabled;
+
+    private final AtomicBoolean redisAvailable = new AtomicBoolean(true);
+    private final AtomicBoolean redisFailureLogged = new AtomicBoolean(false);
     
     // 上下文 TTL（24小时）
     private static final long CONTEXT_TTL_HOURS = 24;
@@ -49,6 +57,9 @@ public class ContextPersistenceService {
      * 保存执行上下文（只持久化 AgentState）
      */
     public void saveContext(Long playlistId, PlaylistContext context) {
+        if (!isRedisUsable()) {
+            return;
+        }
         try {
             String key = getContextKey(playlistId);
             SnapshotWrapper wrapper = new SnapshotWrapper();
@@ -64,6 +75,8 @@ public class ContextPersistenceService {
                 playlistId, context.getCurrentStage());
         } catch (JsonProcessingException e) {
             log.error("[ContextPersist] 序列化上下文失败: playlistId={}", playlistId, e);
+        } catch (Exception e) {
+            markRedisFailed("saveContext", e);
         }
     }
     
@@ -73,6 +86,9 @@ public class ContextPersistenceService {
      * 注意：只恢复 AgentState，WorkingMemory 需要重新生成
      */
     public PlaylistContext loadContext(Long playlistId) {
+        if (!isRedisUsable()) {
+            return null;
+        }
         try {
             String key = getContextKey(playlistId);
             RBucket<String> bucket = redissonClient.getBucket(key);
@@ -113,7 +129,7 @@ public class ContextPersistenceService {
             
             return context;
         } catch (Exception e) {
-            log.error("[ContextPersist] 反序列化上下文失败: playlistId={}", playlistId, e);
+            markRedisFailed("loadContext", e);
             return null;
         }
     }
@@ -122,19 +138,34 @@ public class ContextPersistenceService {
      * 删除执行上下文（完成后清理）
      */
     public void deleteContext(Long playlistId) {
+        if (!isRedisUsable()) {
+            return;
+        }
         String key = getContextKey(playlistId);
-        RBucket<String> bucket = redissonClient.getBucket(key);
-        bucket.delete();
-        log.debug("[ContextPersist] 删除执行上下文: playlistId={}", playlistId);
+        try {
+            RBucket<String> bucket = redissonClient.getBucket(key);
+            bucket.delete();
+            log.debug("[ContextPersist] 删除执行上下文: playlistId={}", playlistId);
+        } catch (Exception e) {
+            markRedisFailed("deleteContext", e);
+        }
     }
     
     /**
      * 检查是否存在未完成的上下文
      */
     public boolean hasUnfinishedContext(Long playlistId) {
+        if (!isRedisUsable()) {
+            return false;
+        }
         String key = getContextKey(playlistId);
-        RBucket<String> bucket = redissonClient.getBucket(key);
-        return bucket.isExists();
+        try {
+            RBucket<String> bucket = redissonClient.getBucket(key);
+            return bucket.isExists();
+        } catch (Exception e) {
+            markRedisFailed("hasUnfinishedContext", e);
+            return false;
+        }
     }
     
     /**
@@ -153,6 +184,9 @@ public class ContextPersistenceService {
      * 2. 手动 Resume：从某个节点快照恢复 AgentState 后重新执行图
      */
     public void saveNodeSnapshot(Long playlistId, String executionId, int step, PlaylistContext context) {
+        if (!isRedisUsable()) {
+            return;
+        }
         try {
             if (playlistId == null || executionId == null) {
                 return;
@@ -170,6 +204,8 @@ public class ContextPersistenceService {
         } catch (JsonProcessingException e) {
             log.error("[ContextPersist] 序列化节点快照失败: playlistId={}, executionId={}, step={}",
                 playlistId, executionId, step, e);
+        } catch (Exception e) {
+            markRedisFailed("saveNodeSnapshot", e);
         }
     }
     
@@ -177,6 +213,9 @@ public class ContextPersistenceService {
      * 加载节点快照（用于 Debug Replay）
      */
     public PlaylistContext loadNodeSnapshot(Long playlistId, String executionId, int step) {
+        if (!isRedisUsable()) {
+            return null;
+        }
         try {
             if (playlistId == null || executionId == null) {
                 return null;
@@ -210,8 +249,7 @@ public class ContextPersistenceService {
             context.setState(state);
             return context;
         } catch (Exception e) {
-            log.error("[ContextPersist] 加载节点快照失败: playlistId={}, executionId={}, step={}",
-                playlistId, executionId, step, e);
+            markRedisFailed("loadNodeSnapshot", e);
             return null;
         }
     }
@@ -220,6 +258,9 @@ public class ContextPersistenceService {
      * 保存完整执行追踪（用于 Debug Replay）
      */
     public void saveExecutionTrace(ExecutionTrace trace) {
+        if (!isRedisUsable()) {
+            return;
+        }
         if (trace == null || trace.getPlaylistId() == null || trace.getExecutionId() == null) {
             return;
         }
@@ -240,6 +281,8 @@ public class ContextPersistenceService {
         } catch (JsonProcessingException e) {
             log.error("[ContextPersist] 序列化执行追踪失败: playlistId={}, executionId={}",
                 trace.getPlaylistId(), trace.getExecutionId(), e);
+        } catch (Exception e) {
+            markRedisFailed("saveExecutionTrace", e);
         }
     }
 
@@ -247,6 +290,9 @@ public class ContextPersistenceService {
      * 加载完整执行追踪
      */
     public ExecutionTrace loadExecutionTrace(Long playlistId, String executionId) {
+        if (!isRedisUsable()) {
+            return null;
+        }
         try {
             if (playlistId == null || executionId == null) {
                 return null;
@@ -262,8 +308,7 @@ public class ContextPersistenceService {
             String json = decodeCompressed(stored);
             return objectMapper.readValue(json, ExecutionTrace.class);
         } catch (Exception e) {
-            log.error("[ContextPersist] 加载执行追踪失败: playlistId={}, executionId={}",
-                playlistId, executionId, e);
+            markRedisFailed("loadExecutionTrace", e);
             return null;
         }
     }
@@ -349,6 +394,9 @@ public class ContextPersistenceService {
      * 查询某个播放列表的最近一次执行ID
      */
     public String getLatestExecutionId(Long playlistId) {
+        if (!isRedisUsable()) {
+            return null;
+        }
         if (playlistId == null) {
             return null;
         }
@@ -357,8 +405,22 @@ public class ContextPersistenceService {
             RBucket<String> bucket = redissonClient.getBucket(key);
             return bucket.get();
         } catch (Exception e) {
-            log.error("[ContextPersist] 获取最新执行ID失败: playlistId={}", playlistId, e);
+            markRedisFailed("getLatestExecutionId", e);
             return null;
+        }
+    }
+
+    private boolean isRedisUsable() {
+        return redisEnabled && redisAvailable.get();
+    }
+
+    private void markRedisFailed(String op, Exception e) {
+        redisAvailable.set(false);
+        if (redisFailureLogged.compareAndSet(false, true)) {
+            log.warn("[ContextPersist] Redis unavailable, disable persistence. op={}, reason={}", op,
+                e != null ? e.getMessage() : "unknown");
+        } else {
+            log.debug("[ContextPersist] op={} failed: {}", op, e != null ? e.getMessage() : "unknown");
         }
     }
 }

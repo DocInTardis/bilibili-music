@@ -4,9 +4,13 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Agent 执行锁服务
@@ -22,6 +26,14 @@ import java.util.concurrent.TimeUnit;
 public class ExecutionLockService {
     
     private final RedissonClient redissonClient;
+
+    @Value("${REDIS_ENABLED:true}")
+    private boolean redisEnabled;
+
+    private final AtomicBoolean redisAvailable = new AtomicBoolean(true);
+    private final AtomicBoolean redisFailureLogged = new AtomicBoolean(false);
+
+    private final ConcurrentHashMap<Long, ReentrantLock> localLocks = new ConcurrentHashMap<>();
     
     // 锁等待时间（秒）
     private static final long WAIT_TIME = 5;
@@ -36,6 +48,9 @@ public class ExecutionLockService {
      * @return 是否成功获取锁
      */
     public boolean tryLock(Long playlistId) {
+        if (!isRedisUsable()) {
+            return tryLocalLock(playlistId);
+        }
         String lockKey = getLockKey(playlistId);
         RLock lock = redissonClient.getLock(lockKey);
         
@@ -53,6 +68,9 @@ public class ExecutionLockService {
             log.error("[ExecutionLock] 获取锁时被中断: playlistId={}", playlistId, e);
             Thread.currentThread().interrupt();
             return false;
+        } catch (Exception e) {
+            markRedisFailed("tryLock", e);
+            return tryLocalLock(playlistId);
         }
     }
     
@@ -60,6 +78,10 @@ public class ExecutionLockService {
      * 释放执行锁
      */
     public void unlock(Long playlistId) {
+        if (!isRedisUsable()) {
+            unlockLocal(playlistId);
+            return;
+        }
         String lockKey = getLockKey(playlistId);
         RLock lock = redissonClient.getLock(lockKey);
         
@@ -75,6 +97,10 @@ public class ExecutionLockService {
      * 强制释放锁（谨慎使用）
      */
     public void forceUnlock(Long playlistId) {
+        if (!isRedisUsable()) {
+            unlockLocal(playlistId);
+            return;
+        }
         String lockKey = getLockKey(playlistId);
         RLock lock = redissonClient.getLock(lockKey);
         
@@ -88,6 +114,9 @@ public class ExecutionLockService {
      * 检查是否已锁定
      */
     public boolean isLocked(Long playlistId) {
+        if (!isRedisUsable()) {
+            return isLocalLocked(playlistId);
+        }
         String lockKey = getLockKey(playlistId);
         RLock lock = redissonClient.getLock(lockKey);
         return lock.isLocked();
@@ -131,5 +160,45 @@ public class ExecutionLockService {
      */
     private String getLockKey(Long playlistId) {
         return "agent:lock:" + playlistId;
+    }
+
+    private boolean isRedisUsable() {
+        return redisEnabled && redisAvailable.get();
+    }
+
+    private void markRedisFailed(String op, Exception e) {
+        redisAvailable.set(false);
+        if (redisFailureLogged.compareAndSet(false, true)) {
+            log.warn("[ExecutionLock] Redis unavailable, fallback to local lock. op={}, reason={}", op,
+                e != null ? e.getMessage() : "unknown");
+        } else {
+            log.debug("[ExecutionLock] op={} failed: {}", op, e != null ? e.getMessage() : "unknown");
+        }
+    }
+
+    private ReentrantLock getLocalLock(Long playlistId) {
+        return localLocks.computeIfAbsent(playlistId != null ? playlistId : -1L, key -> new ReentrantLock());
+    }
+
+    private boolean tryLocalLock(Long playlistId) {
+        ReentrantLock lock = getLocalLock(playlistId);
+        try {
+            return lock.tryLock(WAIT_TIME, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
+    private void unlockLocal(Long playlistId) {
+        ReentrantLock lock = getLocalLock(playlistId);
+        if (lock.isHeldByCurrentThread()) {
+            lock.unlock();
+        }
+    }
+
+    private boolean isLocalLocked(Long playlistId) {
+        ReentrantLock lock = getLocalLock(playlistId);
+        return lock.isLocked();
     }
 }

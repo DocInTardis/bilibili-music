@@ -5,9 +5,11 @@ import com.example.bilibilimusic.mapper.AgentBehaviorLogMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Agent 行为日志服务
@@ -24,11 +26,20 @@ public class AgentBehaviorLogService {
     
     private final AgentBehaviorLogMapper behaviorLogMapper;
     private final ObjectMapper objectMapper;
+
+    @Value("${DB_ENABLED:true}")
+    private boolean dbEnabled;
+
+    private final AtomicBoolean dbAvailable = new AtomicBoolean(true);
+    private final AtomicBoolean dbFailureLogged = new AtomicBoolean(false);
     
     /**
      * 记录节点进入
      */
     public void logNodeEnter(Long playlistId, Long conversationId, String nodeName) {
+        if (!isDbUsable()) {
+            return;
+        }
         try {
             AgentBehaviorLog log = AgentBehaviorLog.builder()
                 .playlistId(playlistId)
@@ -42,7 +53,7 @@ public class AgentBehaviorLogService {
             
             behaviorLogMapper.insert(log);
         } catch (Exception e) {
-            log.error("[BehaviorLog] 记录节点进入失败: nodeName={}", nodeName, e);
+            markDbFailed("logNodeEnter", e);
         }
     }
     
@@ -51,6 +62,9 @@ public class AgentBehaviorLogService {
      */
     public void logNodeExit(Long playlistId, Long conversationId, String nodeName, 
                            long durationMs, boolean success, String errorMessage) {
+        if (!isDbUsable()) {
+            return;
+        }
         try {
             AgentBehaviorLog log = AgentBehaviorLog.builder()
                 .playlistId(playlistId)
@@ -66,7 +80,7 @@ public class AgentBehaviorLogService {
             
             behaviorLogMapper.insert(log);
         } catch (Exception e) {
-            log.error("[BehaviorLog] 记录节点退出失败: nodeName={}", nodeName, e);
+            markDbFailed("logNodeExit", e);
         }
     }
     
@@ -75,6 +89,9 @@ public class AgentBehaviorLogService {
      */
     public void logEdgeTransition(Long playlistId, Long conversationId, String edgeName,
                                   String sourceNode, String targetNode) {
+        if (!isDbUsable()) {
+            return;
+        }
         try {
             AgentBehaviorLog log = AgentBehaviorLog.builder()
                 .playlistId(playlistId)
@@ -90,7 +107,7 @@ public class AgentBehaviorLogService {
             
             behaviorLogMapper.insert(log);
         } catch (Exception e) {
-            log.error("[BehaviorLog] 记录边转移失败: edge={}", edgeName, e);
+            markDbFailed("logEdgeTransition", e);
         }
     }
     
@@ -100,6 +117,9 @@ public class AgentBehaviorLogService {
     public void logLLMCall(Long playlistId, Long conversationId, String nodeName,
                           String promptVersion, Object input, Object output, 
                           long durationMs, boolean success) {
+        if (!isDbUsable()) {
+            return;
+        }
         try {
             String inputJson = input != null ? objectMapper.writeValueAsString(input) : null;
             String outputJson = output != null ? objectMapper.writeValueAsString(output) : null;
@@ -120,7 +140,7 @@ public class AgentBehaviorLogService {
             
             behaviorLogMapper.insert(log);
         } catch (Exception e) {
-            log.error("[BehaviorLog] 记录 LLM 调用失败: nodeName={}", nodeName, e);
+            markDbFailed("logLLMCall", e);
         }
     }
     
@@ -129,6 +149,9 @@ public class AgentBehaviorLogService {
      */
     public void logCacheHit(Long playlistId, Long conversationId, String nodeName, 
                            String cacheKey, String description) {
+        if (!isDbUsable()) {
+            return;
+        }
         try {
             AgentBehaviorLog log = AgentBehaviorLog.builder()
                 .playlistId(playlistId)
@@ -143,7 +166,7 @@ public class AgentBehaviorLogService {
             
             behaviorLogMapper.insert(log);
         } catch (Exception e) {
-            log.error("[BehaviorLog] 记录缓存命中失败: nodeName={}", nodeName, e);
+            markDbFailed("logCacheHit", e);
         }
     }
     
@@ -152,6 +175,9 @@ public class AgentBehaviorLogService {
      */
     public void logError(Long playlistId, Long conversationId, String nodeName,
                         String errorMessage, String stackTrace) {
+        if (!isDbUsable()) {
+            return;
+        }
         try {
             AgentBehaviorLog log = AgentBehaviorLog.builder()
                 .playlistId(playlistId)
@@ -167,7 +193,21 @@ public class AgentBehaviorLogService {
             
             behaviorLogMapper.insert(log);
         } catch (Exception e) {
-            log.error("[BehaviorLog] 记录错误失败: nodeName={}", nodeName, e);
+            markDbFailed("logError", e);
+        }
+    }
+
+    private boolean isDbUsable() {
+        return dbEnabled && dbAvailable.get();
+    }
+
+    private void markDbFailed(String op, Exception e) {
+        dbAvailable.set(false);
+        if (dbFailureLogged.compareAndSet(false, true)) {
+            log.warn("[BehaviorLog] DB unavailable, disable behavior logging. op={}, reason={}", op,
+                e != null ? e.getMessage() : "unknown");
+        } else {
+            log.debug("[BehaviorLog] op={} failed: {}", op, e != null ? e.getMessage() : "unknown");
         }
     }
 }

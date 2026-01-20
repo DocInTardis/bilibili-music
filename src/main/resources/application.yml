@@ -19,7 +19,8 @@ spring:
       port: ${REDIS_PORT:6379}
       database: ${REDIS_DB:0}
       password: ${REDIS_PASSWORD:}
-      timeout: ${REDIS_TIMEOUT:5000ms}
+      timeout: ${REDIS_TIMEOUT:500ms}
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT:500ms}
       lettuce:
         pool:
           max-active: 8
@@ -78,9 +79,11 @@ http:
     response-timeout-ms: ${HTTP_RESPONSE_TIMEOUT_MS:8000}
 
 agent:
+  execution:
+    default-max-duration-ms: ${AGENT_EXECUTION_DEFAULT_MAX_DURATION_MS:180000}
   prefetch:
     scoring:
-      enabled: ${AGENT_PREFETCH_SCORING_ENABLED:true}
+      enabled: ${AGENT_PREFETCH_SCORING_ENABLED:false}
       max-videos: ${AGENT_PREFETCH_SCORING_MAX_VIDEOS:50}
 
 job:

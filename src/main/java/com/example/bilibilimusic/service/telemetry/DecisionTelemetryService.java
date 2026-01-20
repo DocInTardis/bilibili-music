@@ -5,10 +5,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.TimeUnit;
 
 @Service
@@ -20,6 +22,12 @@ public class DecisionTelemetryService {
 
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
+
+    @Value("${REDIS_ENABLED:true}")
+    private boolean redisEnabled;
+
+    private final AtomicBoolean redisAvailable = new AtomicBoolean(true);
+    private final AtomicBoolean redisFailureLogged = new AtomicBoolean(false);
 
     public enum Source {
         RULE,
@@ -36,6 +44,9 @@ public class DecisionTelemetryService {
                                Integer score,
                                String reasonCategory,
                                String promptVersion) {
+        if (!isRedisUsable()) {
+            return;
+        }
         if (conversationId == null || targetType == null || targetId == null) {
             return;
         }
@@ -76,11 +87,14 @@ public class DecisionTelemetryService {
             String json = objectMapper.writeValueAsString(payload);
             set(lastDecisionKey(conversationId, safeType, safeId), json);
         } catch (Exception e) {
-            log.debug("[DecisionTelemetry] save last decision failed: {}", e.getMessage());
+            markRedisFailed("recordDecision", e);
         }
     }
 
     public void recordFeedback(UserBehaviorEvent event) {
+        if (!isRedisUsable()) {
+            return;
+        }
         if (event == null || event.getConversationId() == null || event.getBehaviorType() == null) {
             return;
         }
@@ -94,7 +108,13 @@ public class DecisionTelemetryService {
         }
 
         String key = lastDecisionKey(event.getConversationId(), event.getTargetType().toLowerCase(Locale.ROOT), event.getTargetId());
-        String json = stringRedisTemplate.opsForValue().get(key);
+        String json;
+        try {
+            json = stringRedisTemplate.opsForValue().get(key);
+        } catch (Exception e) {
+            markRedisFailed("recordFeedback", e);
+            return;
+        }
         if (json == null || json.isBlank()) {
             return;
         }
@@ -119,11 +139,14 @@ public class DecisionTelemetryService {
                 incr("agent:decision:source:" + source + ":feedback:wrong");
             }
         } catch (Exception e) {
-            log.debug("[DecisionTelemetry] parse last decision failed: {}", e.getMessage());
+            markRedisFailed("recordFeedback.parse", e);
         }
     }
 
     public Snapshot snapshot() {
+        if (!isRedisUsable()) {
+            return new Snapshot();
+        }
         Snapshot snapshot = new Snapshot();
         snapshot.totalDecisions = parseLong(get("agent:decision:total"));
         snapshot.feedbackTotal = parseLong(get("agent:decision:feedback:total"));
@@ -133,7 +156,13 @@ public class DecisionTelemetryService {
             ? (double) snapshot.feedbackCorrect / snapshot.feedbackTotal
             : 0.0;
 
-        Set<String> sources = stringRedisTemplate.opsForSet().members("agent:decision:sources");
+        Set<String> sources;
+        try {
+            sources = stringRedisTemplate.opsForSet().members("agent:decision:sources");
+        } catch (Exception e) {
+            markRedisFailed("snapshot", e);
+            return snapshot;
+        }
         if (sources != null) {
             for (String source : sources) {
                 Snapshot.SourceStats s = new Snapshot.SourceStats();
@@ -187,21 +216,50 @@ public class DecisionTelemetryService {
     }
 
     private void incr(String key) {
-        stringRedisTemplate.opsForValue().increment(key);
-        stringRedisTemplate.expire(key, TTL_DAYS, TimeUnit.DAYS);
+        if (!isRedisUsable()) {
+            return;
+        }
+        try {
+            stringRedisTemplate.opsForValue().increment(key);
+            stringRedisTemplate.expire(key, TTL_DAYS, TimeUnit.DAYS);
+        } catch (Exception e) {
+            markRedisFailed("incr", e);
+        }
     }
 
     private void set(String key, String value) {
-        stringRedisTemplate.opsForValue().set(key, value, TTL_DAYS, TimeUnit.DAYS);
+        if (!isRedisUsable()) {
+            return;
+        }
+        try {
+            stringRedisTemplate.opsForValue().set(key, value, TTL_DAYS, TimeUnit.DAYS);
+        } catch (Exception e) {
+            markRedisFailed("set", e);
+        }
     }
 
     private void sadd(String key, String member) {
-        stringRedisTemplate.opsForSet().add(key, member);
-        stringRedisTemplate.expire(key, TTL_DAYS, TimeUnit.DAYS);
+        if (!isRedisUsable()) {
+            return;
+        }
+        try {
+            stringRedisTemplate.opsForSet().add(key, member);
+            stringRedisTemplate.expire(key, TTL_DAYS, TimeUnit.DAYS);
+        } catch (Exception e) {
+            markRedisFailed("sadd", e);
+        }
     }
 
     private String get(String key) {
-        return stringRedisTemplate.opsForValue().get(key);
+        if (!isRedisUsable()) {
+            return null;
+        }
+        try {
+            return stringRedisTemplate.opsForValue().get(key);
+        } catch (Exception e) {
+            markRedisFailed("get", e);
+            return null;
+        }
     }
 
     private long parseLong(String s) {
@@ -212,6 +270,20 @@ public class DecisionTelemetryService {
             return Long.parseLong(s);
         } catch (NumberFormatException e) {
             return 0L;
+        }
+    }
+
+    private boolean isRedisUsable() {
+        return redisEnabled && redisAvailable.get();
+    }
+
+    private void markRedisFailed(String op, Exception e) {
+        redisAvailable.set(false);
+        if (redisFailureLogged.compareAndSet(false, true)) {
+            log.warn("[DecisionTelemetry] Redis unavailable, disable telemetry. op={}, reason={}", op,
+                e != null ? e.getMessage() : "unknown");
+        } else {
+            log.debug("[DecisionTelemetry] op={} failed: {}", op, e != null ? e.getMessage() : "unknown");
         }
     }
 
@@ -237,4 +309,3 @@ public class DecisionTelemetryService {
         }
     }
 }
-

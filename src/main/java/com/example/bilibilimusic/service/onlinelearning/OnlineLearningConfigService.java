@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
 @RequiredArgsConstructor
@@ -15,6 +16,9 @@ import java.util.Optional;
 public class OnlineLearningConfigService {
 
     private final OnlineLearningConfigMapper configMapper;
+
+    @Value("${DB_ENABLED:true}")
+    private boolean dbEnabled;
 
     @Value("${onlineLearning.training-enabled:true}")
     private boolean defaultTrainingEnabled;
@@ -43,6 +47,9 @@ public class OnlineLearningConfigService {
     private volatile Snapshot cached;
     private volatile long cachedAtMs;
 
+    private final AtomicBoolean dbAvailable = new AtomicBoolean(true);
+    private final AtomicBoolean dbFailureLogged = new AtomicBoolean(false);
+
     public Snapshot snapshot() {
         Snapshot cur = cached;
         long now = Instant.now().toEpochMilli();
@@ -56,6 +63,9 @@ public class OnlineLearningConfigService {
     }
 
     private Snapshot load() {
+        if (!isDbUsable()) {
+            return defaultSnapshot();
+        }
         return new Snapshot(
             getBool("trainingEnabled").orElse(defaultTrainingEnabled),
             getBool("enabled").orElse(defaultEnabled),
@@ -101,14 +111,20 @@ public class OnlineLearningConfigService {
     }
 
     private void tryUpsert(String key, String value) {
+        if (!isDbUsable()) {
+            return;
+        }
         try {
             configMapper.upsert(key, value);
         } catch (Exception e) {
-            log.debug("[OnlineLearning] config upsert failed: key={}, err={}", key, e.getMessage());
+            markDbFailed("upsert:" + key, e);
         }
     }
 
     private Optional<String> getStr(String key) {
+        if (!isDbUsable()) {
+            return Optional.empty();
+        }
         try {
             var row = configMapper.findByKey(key);
             if (row == null || row.getConfigValue() == null) {
@@ -117,6 +133,7 @@ public class OnlineLearningConfigService {
             String v = row.getConfigValue().trim();
             return v.isBlank() ? Optional.empty() : Optional.of(v);
         } catch (Exception e) {
+            markDbFailed("get:" + key, e);
             return Optional.empty();
         }
     }
@@ -147,6 +164,35 @@ public class OnlineLearningConfigService {
         return v;
     }
 
+    private Snapshot defaultSnapshot() {
+        return new Snapshot(
+            defaultTrainingEnabled,
+            defaultEnabled,
+            clamp01(defaultTreatmentRatio),
+            defaultModelName,
+            null,
+            null,
+            defaultLearningRate,
+            defaultL2,
+            Math.max(1, defaultMaxBatchSize),
+            Math.max(0.1, defaultScoreScale)
+        );
+    }
+
+    private boolean isDbUsable() {
+        return dbEnabled && dbAvailable.get();
+    }
+
+    private void markDbFailed(String op, Exception e) {
+        dbAvailable.set(false);
+        if (dbFailureLogged.compareAndSet(false, true)) {
+            log.warn("[OnlineLearning] DB unavailable, fallback to defaults. op={}, reason={}", op,
+                e != null ? e.getMessage() : "unknown");
+        } else {
+            log.debug("[OnlineLearning] op={} failed: {}", op, e != null ? e.getMessage() : "unknown");
+        }
+    }
+
     public record Snapshot(boolean trainingEnabled,
                            boolean enabled,
                            double treatmentRatio,
@@ -159,4 +205,3 @@ public class OnlineLearningConfigService {
                            double scoreScale) {
     }
 }
-
