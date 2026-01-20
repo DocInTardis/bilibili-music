@@ -171,22 +171,22 @@ public class PromptVersionService {
             "4. 直接输出推荐文案，不要额外的格式标记");
         registerPrompt("video_feedback", "v1.0",
             """
-            ???????????????? JSON?
-            ???????????????????????????????????????
+            你是音乐偏好分析助手，请严格输出 JSON。
+            任务：根据用户对单个视频的评价，提取情绪、强度、艺人、关键词，并给出简短回应。
 
-            ?????
+            输出格式：
             {
               "sentiment": "positive|negative|neutral",
               "intensity": 0.0,
-              "artists": ["??"],
-              "keywords": ["???"],
-              "reply": "????????"
+              "artists": ["艺人"],
+              "keywords": ["关键词"],
+              "reply": "给用户的简短回应"
             }
 
-            ???
-            - ??? JSON???????
-            - intensity ?? 0~1
-            - artists/keywords ?????
+            约束：
+            - 只输出 JSON，不要额外文本
+            - intensity 范围 0~1
+            - artists/keywords 可为空数组
             """.trim());
     }
     

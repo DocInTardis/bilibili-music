@@ -86,19 +86,19 @@ createApp({
         messageAvatar(kind) {
             switch (kind) {
                 case 'user':
-                    return '👤';
+                    return 'U';
                 case 'agent':
-                    return '🤖';
+                    return 'AI';
                 case 'stage':
-                    return '🧠';
+                    return 'ST';
                 case 'search':
-                    return '🔎';
+                    return 'SR';
                 case 'stream':
-                    return '🎧';
+                    return 'RT';
                 case 'recommendation':
-                    return '💡';
+                    return 'RC';
                 default:
-                    return '💬';
+                    return '?';
             }
         },
         nextMessageId() {
