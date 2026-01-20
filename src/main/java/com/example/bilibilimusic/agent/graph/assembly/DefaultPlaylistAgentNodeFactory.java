@@ -6,6 +6,8 @@ import com.example.bilibilimusic.config.AgentPrefetchConfig;
 import com.example.bilibilimusic.service.AudioFingerprintService;
 import com.example.bilibilimusic.service.CacheService;
 import com.example.bilibilimusic.service.DatabaseService;
+import com.example.bilibilimusic.service.MultiRecallService;
+import com.example.bilibilimusic.service.RerankService;
 import com.example.bilibilimusic.service.UserPreferenceService;
 import com.example.bilibilimusic.service.telemetry.DecisionTelemetryService;
 import com.example.bilibilimusic.service.onlinelearning.OnlineLearningSampleService;
@@ -36,12 +38,14 @@ public class DefaultPlaylistAgentNodeFactory implements PlaylistAgentNodeFactory
                                           AudioFingerprintService audioFingerprintService,
                                           DecisionTelemetryService decisionTelemetryService,
                                           AgentPrefetchConfig agentPrefetchConfig,
-                                          OnlineLearningSampleService onlineLearningSampleService) {
+                                          OnlineLearningSampleService onlineLearningSampleService,
+                                          MultiRecallService recallService,
+                                          RerankService rerankService) {
         Map<String, Supplier<AgentNode>> map = new HashMap<>();
         map.put("intent_understanding", () -> new IntentUnderstandingNode(wsTopicPublisher));
         map.put("keyword_extraction", () -> new KeywordExtractionNode(keywordExtractionSkill, wsTopicPublisher, cacheService));
-        map.put("video_retrieval", () -> new VideoRetrievalNode(retrievalSkill, wsTopicPublisher, cacheService));
-        map.put("pre_sort_videos", () -> new PreSortVideosNode(preferenceService, cacheService, relevanceScorer, agentPrefetchConfig));
+        map.put("video_retrieval", () -> new VideoRetrievalNode(recallService, retrievalSkill, wsTopicPublisher));
+        map.put("pre_sort_videos", () -> new PreSortVideosNode(preferenceService, cacheService, relevanceScorer, agentPrefetchConfig, rerankService));
         map.put("content_analysis", () -> new ContentAnalysisNode(wsTopicPublisher, decisionTelemetryService));
         map.put("quantity_estimation", () -> new QuantityEstimationNode(audioFingerprintService));
         map.put("relevance_decision", () -> new RelevanceDecisionNode(relevanceScorer, preferenceService, cacheService, decisionTelemetryService, onlineLearningSampleService));

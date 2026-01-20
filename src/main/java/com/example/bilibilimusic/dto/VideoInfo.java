@@ -3,21 +3,28 @@ package com.example.bilibilimusic.dto;
 import lombok.Builder;
 import lombok.Data;
 
+import java.util.List;
+import java.util.Map;
+
 @Data
 @Builder
 public class VideoInfo {
-    private String bvid;  // B站视频BV号
+    private String bvid;
     private String title;
     private String url;
     private String author;
     private String duration;
-    private String tags;  // 新增：视频标签
-    private String description;  // 新增：视频描述（可选）
-    private Long playCount;  // 新增：播放量
-    private Long commentCount;  // 新增：评论数
-    private String coverUrl;  // 视频封面
+    private String tags;
+    private String description;
+    private Long playCount;
+    private Long commentCount;
+    private String coverUrl;
 
-    // Album/track metadata (optional, for ordered album playback UX)
     private String albumTitle;
     private Integer trackNo;
+
+    private List<String> recallSources;
+    private Double rerankScore;
+    private Map<String, Double> rerankBreakdown;
+    private String rerankReason;
 }

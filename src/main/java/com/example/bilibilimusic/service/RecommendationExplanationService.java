@@ -58,9 +58,13 @@ public class RecommendationExplanationService {
         // 5. 计算偏好置信度
         Double preferenceConfidence = calculatePreferenceConfidence(conversationId, userId);
 
-        // 6. 生成摘要
+        Map<String, Integer> recallChannels = context.getRecallChannelCounts();
+        List<String> recallQueries = context.getRecallQueries();
+
         String summary = generateSummary(coldStart, explorationRate, matchFactors,
             preferenceBonus, preferenceConfidence);
+        String rerankStrategy = buildRerankStrategy(recallChannels);
+        summary = appendRecallSummary(summary, recallChannels, rerankStrategy);
 
         return PlaylistResponse.RecommendationExplanation.builder()
             .coldStart(coldStart)
@@ -68,6 +72,9 @@ public class RecommendationExplanationService {
             .matchFactors(matchFactors)
             .preferenceBonus(preferenceBonus)
             .preferenceConfidence(preferenceConfidence)
+            .recallChannels(recallChannels)
+            .recallQueries(recallQueries)
+            .rerankStrategy(rerankStrategy)
             .summary(summary)
             .build();
     }
@@ -181,5 +188,31 @@ public class RecommendationExplanationService {
         }
 
         return sb.toString();
+    }
+
+    private String appendRecallSummary(String summary,
+                                       Map<String, Integer> recallChannels,
+                                       String rerankStrategy) {
+        String base = summary != null ? summary : "";
+        StringBuilder sb = new StringBuilder(base);
+        if (recallChannels != null && !recallChannels.isEmpty()) {
+            String channels = recallChannels.entrySet().stream()
+                .map(e -> e.getKey() + ":" + e.getValue())
+                .collect(Collectors.joining(", "));
+            if (!channels.isBlank()) {
+                sb.append(" recall=").append(channels);
+            }
+        }
+        if (rerankStrategy != null && !rerankStrategy.isBlank()) {
+            sb.append(" ").append(rerankStrategy);
+        }
+        return sb.toString().trim();
+    }
+
+    private String buildRerankStrategy(Map<String, Integer> recallChannels) {
+        if (recallChannels == null || recallChannels.isEmpty()) {
+            return "rerank=relevance";
+        }
+        return "rerank=relevance+recallBoost";
     }
 }

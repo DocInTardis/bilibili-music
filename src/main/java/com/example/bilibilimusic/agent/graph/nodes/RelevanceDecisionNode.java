@@ -96,6 +96,10 @@ public class RelevanceDecisionNode implements AgentNode {
         decisionInfo.put("modelVersion", scoringResult.getModelVersion());
         decisionInfo.put("modelProbability", scoringResult.getModelProbability());
         decisionInfo.put("reason", decisionReason);
+        decisionInfo.put("recallSources", video.getRecallSources());
+        decisionInfo.put("rerankScore", video.getRerankScore());
+        decisionInfo.put("rerankReason", video.getRerankReason());
+        decisionInfo.put("rerankBreakdown", video.getRerankBreakdown());
         state.setLastDecisionInfo(decisionInfo);
         
         log.debug("[RelDecision] {} - 评分: {}, 结果: {}", 

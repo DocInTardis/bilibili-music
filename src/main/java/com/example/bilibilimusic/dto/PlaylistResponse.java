@@ -76,7 +76,22 @@ public class PlaylistResponse {
          * 用户偏好置信度（归一化后的总体置信度）
          */
         private Double preferenceConfidence;
-        
+
+        /**
+         * Recall channel counts
+         */
+        private Map<String, Integer> recallChannels;
+
+        /**
+         * Recall queries used in multi-recall
+         */
+        private List<String> recallQueries;
+
+        /**
+         * Rerank strategy summary
+         */
+        private String rerankStrategy;
+
         /**
          * 推荐原因摘要
          */

@@ -64,6 +64,24 @@ recommend:
   daily:
     personal-weight: ${RECOMMEND_DAILY_PERSONAL_WEIGHT:0.7}
     rank-weight: ${RECOMMEND_DAILY_RANK_WEIGHT:0.3}
+  recall:
+    per-query-limit: ${RECOMMEND_RECALL_PER_QUERY_LIMIT:20}
+    max-candidates-multiplier: ${RECOMMEND_RECALL_MAX_CANDIDATES_MULTIPLIER:3}
+    enable-preference: ${RECOMMEND_RECALL_ENABLE_PREFERENCE:true}
+    enable-daily: ${RECOMMEND_RECALL_ENABLE_DAILY:true}
+    preference-artist-top: ${RECOMMEND_RECALL_PREFERENCE_ARTIST_TOP:2}
+    preference-keyword-top: ${RECOMMEND_RECALL_PREFERENCE_KEYWORD_TOP:2}
+    min-pref-trigger: ${RECOMMEND_RECALL_MIN_PREF_TRIGGER:20}
+    daily-limit: ${RECOMMEND_RECALL_DAILY_LIMIT:20}
+  rerank:
+    recall:
+      query: ${RECOMMEND_RERANK_RECALL_QUERY:2.0}
+      keyword: ${RECOMMEND_RERANK_RECALL_KEYWORD:1.5}
+      pref-artist: ${RECOMMEND_RERANK_RECALL_PREF_ARTIST:2.5}
+      pref-keyword: ${RECOMMEND_RERANK_RECALL_PREF_KEYWORD:2.0}
+      daily-rank: ${RECOMMEND_RERANK_RECALL_DAILY:1.0}
+      fallback: ${RECOMMEND_RERANK_RECALL_FALLBACK:0.5}
+    recall-scale: ${RECOMMEND_RERANK_RECALL_SCALE:1.0}
 
 video:
   detail:

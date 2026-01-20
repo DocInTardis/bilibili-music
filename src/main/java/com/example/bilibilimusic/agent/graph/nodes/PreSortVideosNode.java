@@ -7,6 +7,7 @@ import com.example.bilibilimusic.dto.VideoInfo;
 import com.example.bilibilimusic.config.AgentPrefetchConfig;
 import com.example.bilibilimusic.service.CacheService;
 import com.example.bilibilimusic.service.UserPreferenceService;
+import com.example.bilibilimusic.service.RerankService;
 import com.example.bilibilimusic.skill.VideoRelevanceScorer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -45,6 +46,7 @@ public class PreSortVideosNode implements AgentNode {
     private final CacheService cacheService;
     private final VideoRelevanceScorer relevanceScorer;
     private final AgentPrefetchConfig agentPrefetchConfig;
+    private final RerankService rerankService;
 
     @Override
     public NodeResult execute(PlaylistContext state) {
@@ -134,6 +136,7 @@ public class PreSortVideosNode implements AgentNode {
         List<VideoInfo> slice = sortedVideos.subList(0, limit);
         long start = System.currentTimeMillis();
         Map<String, VideoRelevanceScorer.ScoringResult> results = new ConcurrentHashMap<>();
+        Map<String, RerankService.RerankResult> rerankResults = new ConcurrentHashMap<>();
         try {
             slice.parallelStream().forEach(v -> {
                 if (v == null || v.getBvid() == null || v.getBvid().isBlank()) {
@@ -143,6 +146,13 @@ public class PreSortVideosNode implements AgentNode {
                     relevanceScorer.scoreVideo(v, state.getIntent(), artistPrefs, keywordPrefs, state.getConversationId(), state.getUserId());
                 results.put(v.getBvid(), scoringResult);
                 cacheService.cacheLLMJudgement(v.getBvid(), state.getIntent(), scoringResult);
+                if (rerankService != null) {
+                    RerankService.RerankResult rerank = rerankService.rerank(v, scoringResult);
+                    rerankResults.put(v.getBvid(), rerank);
+                    v.setRerankScore(rerank.score());
+                    v.setRerankBreakdown(rerank.breakdown());
+                    v.setRerankReason(rerank.reason());
+                }
             });
         } catch (Exception e) {
             log.debug("[PreSort] 评分预热失败（忽略，不影响主流程）: {}", e.getMessage());
@@ -164,10 +174,7 @@ public class PreSortVideosNode implements AgentNode {
         List<VideoInfo> rerankedSlice = slice.stream()
             .filter(v -> v != null && v.getBvid() != null && !v.getBvid().isBlank())
             .sorted(Comparator
-                .comparingInt((VideoInfo v) -> {
-                    VideoRelevanceScorer.ScoringResult r = results.get(v.getBvid());
-                    return r != null ? -r.getScore() : Integer.MAX_VALUE;
-                })
+                .comparingDouble((VideoInfo v) -> -scoreOf(v, rerankResults, results))
                 .thenComparing((VideoInfo v) -> isPlaylistStyle(v))
                 .thenComparing((VideoInfo v) -> v.getPlayCount() != null ? -v.getPlayCount() : 0L)
                 .thenComparing((VideoInfo v) -> v.getCommentCount() != null ? -v.getCommentCount() : 0L)
@@ -175,9 +182,9 @@ public class PreSortVideosNode implements AgentNode {
             .toList();
 
         if (albumOrder) {
-            rerankedSlice = orderByTrackNoPreferHighScore(rerankedSlice, results);
+            rerankedSlice = orderByTrackNoPreferHighScore(rerankedSlice, rerankResults, results);
         } else {
-            rerankedSlice = diversifyNoAdjacentSameAuthor(rerankedSlice, results);
+            rerankedSlice = diversifyNoAdjacentSameAuthor(rerankedSlice, rerankResults, results);
         }
 
         List<VideoInfo> out = new ArrayList<>(sortedVideos.size());
@@ -267,6 +274,7 @@ public class PreSortVideosNode implements AgentNode {
     }
 
     private List<VideoInfo> orderByTrackNoPreferHighScore(List<VideoInfo> reranked,
+                                                          Map<String, RerankService.RerankResult> rerankResults,
                                                           Map<String, VideoRelevanceScorer.ScoringResult> results) {
         if (reranked == null || reranked.size() <= 2) {
             return reranked;
@@ -294,8 +302,8 @@ public class PreSortVideosNode implements AgentNode {
                 bestByTrack.put(tn, v);
                 continue;
             }
-            int sPrev = scoreOf(prev, results);
-            int sNow = scoreOf(v, results);
+            double sPrev = scoreOf(prev, rerankResults, results);
+            double sNow = scoreOf(v, rerankResults, results);
             if (sNow > sPrev) {
                 bestByTrack.put(tn, v);
             } else if (sNow == sPrev) {
@@ -393,6 +401,7 @@ public class PreSortVideosNode implements AgentNode {
     }
 
     private List<VideoInfo> diversifyNoAdjacentSameAuthor(List<VideoInfo> videos,
+                                                          Map<String, RerankService.RerankResult> rerankResults,
                                                           Map<String, VideoRelevanceScorer.ScoringResult> results) {
         if (videos == null || videos.size() <= 2) {
             return videos;
@@ -402,7 +411,7 @@ public class PreSortVideosNode implements AgentNode {
         String lastAuthor = null;
         while (!remaining.isEmpty()) {
             int bestIdx = -1;
-            int bestScore = Integer.MIN_VALUE;
+            double bestScore = -1.0e9;
             for (int i = 0; i < remaining.size(); i++) {
                 VideoInfo v = remaining.get(i);
                 String author = normalizeAuthor(v != null ? v.getAuthor() : null);
@@ -410,7 +419,7 @@ public class PreSortVideosNode implements AgentNode {
                 if (!ok) {
                     continue;
                 }
-                int score = scoreOf(v, results);
+                double score = scoreOf(v, rerankResults, results);
                 if (score > bestScore) {
                     bestScore = score;
                     bestIdx = i;
@@ -419,7 +428,7 @@ public class PreSortVideosNode implements AgentNode {
             if (bestIdx < 0) {
                 for (int i = 0; i < remaining.size(); i++) {
                     VideoInfo v = remaining.get(i);
-                    int score = scoreOf(v, results);
+                    double score = scoreOf(v, rerankResults, results);
                     if (score > bestScore) {
                         bestScore = score;
                         bestIdx = i;
@@ -433,12 +442,25 @@ public class PreSortVideosNode implements AgentNode {
         return out;
     }
 
-    private int scoreOf(VideoInfo v, Map<String, VideoRelevanceScorer.ScoringResult> results) {
+    private double scoreOf(VideoInfo v,
+                           Map<String, RerankService.RerankResult> rerankResults,
+                           Map<String, VideoRelevanceScorer.ScoringResult> results) {
         if (v == null || v.getBvid() == null) {
-            return Integer.MIN_VALUE;
+            return -1.0e9;
         }
-        VideoRelevanceScorer.ScoringResult r = results.get(v.getBvid());
-        return r != null ? r.getScore() : Integer.MIN_VALUE;
+        if (rerankResults != null) {
+            RerankService.RerankResult rerank = rerankResults.get(v.getBvid());
+            if (rerank != null) {
+                return rerank.score();
+            }
+        }
+        if (results != null) {
+            VideoRelevanceScorer.ScoringResult r = results.get(v.getBvid());
+            if (r != null) {
+                return r.getScore();
+            }
+        }
+        return -1.0e9;
     }
 
     private String normalizeAuthor(String author) {
