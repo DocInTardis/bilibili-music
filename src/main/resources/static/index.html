@@ -129,6 +129,14 @@
                             allowfullscreen
                             allow="autoplay; fullscreen; picture-in-picture"
                         ></iframe>
+                        <div v-if="!isPlaying && audioSrc" class="player-overlay paused">
+                            <div class="overlay-icon">⏸</div>
+                            <div class="overlay-text">已暂停</div>
+                        </div>
+                        <div v-if="playHintVisible && isPlaying" class="player-overlay playing">
+                            <div class="overlay-icon">▶</div>
+                            <div class="overlay-text">播放中</div>
+                        </div>
                     </div>
                     <div v-else-if="currentVideo" class="empty-player cover-player" :style="getCoverStyle(currentVideo)">
                         <div class="cover-overlay">

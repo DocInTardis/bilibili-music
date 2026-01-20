@@ -40,7 +40,9 @@ createApp({
             showVideoContent: true,
             feedbackTarget: null,
             feedbackText: '',
-            feedbackSending: false
+            feedbackSending: false,
+            playHintVisible: false,
+            playHintTimer: null
         };
     },
     computed: {
@@ -505,8 +507,13 @@ createApp({
                 const streamUrl = await this.ensureMp3(video);
                 const downloadUrl = this.getMp3DownloadUrl(video, streamUrl);
                 const fileName = this.buildDownloadFileName(video);
-                this.triggerBrowserDownload(downloadUrl, fileName);
-                this.addStatus('已触发浏览器下载');
+                const saved = await this.trySaveWithPicker(downloadUrl, fileName);
+                if (!saved) {
+                    this.triggerBrowserDownload(downloadUrl, fileName);
+                    this.addStatus('已触发浏览器下载');
+                } else {
+                    this.addStatus('已保存到本地');
+                }
             } catch (e) {
                 this.addStatus(`MP3 下载失败: ${e && e.message ? e.message : '未知错误'}`);
             }
@@ -555,6 +562,43 @@ createApp({
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
+        },
+        async trySaveWithPicker(url, fileName) {
+            if (!window.showSaveFilePicker) {
+                return false;
+            }
+            try {
+                const handle = await window.showSaveFilePicker({
+                    suggestedName: fileName || 'bilibili-music.mp3',
+                    types: [
+                        {
+                            description: 'MP3 音频',
+                            accept: { 'audio/mpeg': ['.mp3'] }
+                        }
+                    ]
+                });
+                const resp = await fetch(url);
+                if (!resp.ok) {
+                    throw new Error('下载失败');
+                }
+                const blob = await resp.blob();
+                const writable = await handle.createWritable();
+                await writable.write(blob);
+                await writable.close();
+                return true;
+            } catch (e) {
+                return false;
+            }
+        },
+        showPlayHint() {
+            if (this.playHintTimer) {
+                clearTimeout(this.playHintTimer);
+            }
+            this.playHintVisible = true;
+            this.playHintTimer = setTimeout(() => {
+                this.playHintVisible = false;
+                this.playHintTimer = null;
+            }, 1400);
         },
         handleAudioEnded() {
             this.isPlaying = false;
@@ -619,6 +663,7 @@ createApp({
                         playPromise.then(() => {
                             this.isPlaying = true;
                             this.syncVideoWithAudio(true);
+                            this.showPlayHint();
                         }).catch(() => {
                             this.isPlaying = false;
                             this.addStatus('音频播放失败，请点击播放按钮重试');
@@ -626,6 +671,7 @@ createApp({
                     } else {
                         this.isPlaying = true;
                         this.syncVideoWithAudio(true);
+                        this.showPlayHint();
                     }
                 }
                 this.prefetchAround(index);
@@ -650,15 +696,13 @@ createApp({
             if (this.isPlaying) {
                 audio.pause();
                 this.isPlaying = false;
-                if (this.showVideoContent) {
-                    this.playerSrc = '';
-                }
             } else {
                 const playPromise = audio.play();
                 if (playPromise) {
                     playPromise.then(() => {
                         this.isPlaying = true;
                         this.syncVideoWithAudio(false);
+                        this.showPlayHint();
                     }).catch(() => {
                         this.isPlaying = false;
                         this.addStatus('音频播放失败，请稍后重试');
@@ -666,6 +710,7 @@ createApp({
                 } else {
                     this.isPlaying = true;
                     this.syncVideoWithAudio(false);
+                    this.showPlayHint();
                 }
             }
         },
@@ -836,14 +881,28 @@ createApp({
                 return;
             }
             const features = decision.features || {};
+            const safeText = (value, fallback = 'N/A') => {
+                if (value === null || value === undefined || value === '') {
+                    return fallback;
+                }
+                return value;
+            };
+            const toNumber = (value) => {
+                const num = Number(value);
+                return Number.isFinite(num) ? num : 0;
+            };
+            const keywordScore = toNumber(features.titleScore)
+                + toNumber(features.tagScore)
+                + toNumber(features.descriptionScore)
+                + toNumber(features.authorScore);
             const lines = [
-                `reasonCode: ${decision.reasonCode || ''}`,
-                `score: ${decision.score ?? ''} (base=${decision.baseScore ?? ''}, adj=${decision.modelAdjustment ?? ''})`,
-                `semanticScore: ${features.semanticScore ?? ''}`,
-                `keywordScore: ${(features.titleScore ?? 0) + (features.tagScore ?? 0) + (features.descriptionScore ?? 0) + (features.authorScore ?? 0)}`,
-                `credibilityScore: ${features.credibilityScore ?? ''}`,
-                `variant: ${decision.variant || ''}`,
-                `model: ${(decision.modelName || '')} ${(decision.modelVersion || '')}`
+                `reasonCode: ${safeText(decision.reasonCode)}`,
+                `score: ${safeText(decision.score)} (base=${safeText(decision.baseScore)}, adj=${safeText(decision.modelAdjustment)})`,
+                `semanticScore: ${safeText(features.semanticScore)}`,
+                `keywordScore: ${keywordScore}`,
+                `credibilityScore: ${safeText(features.credibilityScore)}`,
+                `variant: ${safeText(decision.variant)}`,
+                `model: ${safeText(decision.modelName)} ${safeText(decision.modelVersion, '')}`.trim()
             ];
             this.whyDetail = {
                 title: video.title || '推荐解释',
