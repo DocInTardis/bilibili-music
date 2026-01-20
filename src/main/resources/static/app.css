@@ -360,25 +360,54 @@ audio {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 10px;
+    gap: 6px;
     font-size: 12px;
     color: var(--muted);
 }
 
 .icon-btn {
+    position: relative;
+    width: 26px;
+    height: 26px;
+    display: grid;
+    place-items: center;
     background: rgba(148, 163, 184, 0.2);
     border: 1px solid var(--stroke);
     color: var(--text);
-    padding: 4px 8px;
-    border-radius: 10px;
+    padding: 0;
+    border-radius: 8px;
     cursor: pointer;
-    font-size: 12px;
-    transition: transform 0.2s ease, border-color 0.2s ease;
+    font-size: 14px;
+    line-height: 1;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.icon-btn::after {
+    content: attr(data-label);
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 6px);
+    transform: translate(-50%, 6px);
+    opacity: 0;
+    pointer-events: none;
+    padding: 4px 6px;
+    font-size: 11px;
+    color: #f8fafc;
+    background: rgba(15, 23, 42, 0.92);
+    border: 1px solid rgba(148, 163, 184, 0.4);
+    border-radius: 6px;
+    white-space: nowrap;
+    transition: opacity 0.15s ease, transform 0.15s ease;
 }
 
 .icon-btn:hover {
     transform: translateY(-1px);
     border-color: rgba(245, 158, 11, 0.6);
+}
+
+.icon-btn:hover::after {
+    opacity: 1;
+    transform: translate(-50%, 0);
 }
 
 .player-panel {

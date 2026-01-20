@@ -91,11 +91,11 @@
                         <div class="track-meta">
                             <span>作者 {{ video.author || '未知作者' }}</span>
                             <span>时长 {{ video.duration || '未知' }}</span>
-                            <button class="icon-btn" @click.stop="showWhy(video)">Why</button>
-                            <button class="icon-btn" @click.stop="renameVideo(video)">改名</button>
-                            <button class="icon-btn" @click.stop="openFeedback(video)">引用</button>
-                            <button class="icon-btn" @click.stop="downloadMp3(video)">下载</button>
-                            <button class="icon-btn" @click.stop="likeVideo(video)">喜欢</button>
+                            <button class="icon-btn" data-label="推荐解释" aria-label="推荐解释" @click.stop="showWhy(video)">?</button>
+                            <button class="icon-btn" data-label="重命名" aria-label="重命名" @click.stop="renameVideo(video)">✎</button>
+                            <button class="icon-btn" data-label="引用评价" aria-label="引用评价" @click.stop="openFeedback(video)">💬</button>
+                            <button class="icon-btn" data-label="下载MP3" aria-label="下载MP3" @click.stop="downloadMp3(video)">⬇</button>
+                            <button class="icon-btn" data-label="喜欢" aria-label="喜欢" @click.stop="likeVideo(video)">♥</button>
                         </div>
                     </div>
                 </div>
