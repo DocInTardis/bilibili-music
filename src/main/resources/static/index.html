@@ -138,10 +138,10 @@
                             <div class="overlay-text">播放中</div>
                         </div>
                     </div>
-                    <div v-else-if="currentVideo" class="empty-player cover-player" :style="getCoverStyle(currentVideo)">
+                    <div v-else-if="currentVideo" class="empty-player cover-player" :class="{ paused: showVideoContent }" :style="getCoverStyle(currentVideo)">
                         <div class="cover-overlay">
-                            <div class="cover-icon">🎵</div>
-                            <div class="cover-text">正在播放</div>
+                            <div class="cover-icon">{{ showVideoContent ? '⏸' : '🎵' }}</div>
+                            <div class="cover-text">{{ showVideoContent ? '已暂停' : '正在播放' }}</div>
                         </div>
                     </div>
                     <div v-else class="empty-player">
@@ -163,6 +163,9 @@
                     preload="metadata"
                     @play="onAudioPlay"
                     @pause="onAudioPause"
+                    @timeupdate="onAudioTimeUpdate"
+                    @loadedmetadata="onAudioLoadedMetadata"
+                    @durationchange="onAudioLoadedMetadata"
                     @ended="handleAudioEnded"
                 ></audio>
             </section>
@@ -301,9 +304,22 @@
                 <div class="bar-sub">{{ currentDisplayMeta }}</div>
             </div>
             <div class="bar-controls">
+                <button @click="restartFromStart" :disabled="!currentVideo">从头</button>
                 <button @click="playPrev">上一首</button>
                 <button class="play-btn" @click="togglePlayPause">{{ isPlaying ? '暂停' : '播放' }}</button>
                 <button @click="playNext">下一首</button>
+            </div>
+            <div class="bar-progress">
+                <input
+                    type="range"
+                    min="0"
+                    :max="audioDuration || 0"
+                    step="1"
+                    :value="audioCurrentTime"
+                    @input="onSeekInput"
+                    @change="onSeekCommit"
+                />
+                <div class="bar-time">{{ formatTime(audioCurrentTime) }} / {{ formatTime(audioDuration) }}</div>
             </div>
             <select class="bar-select" v-model="playMode" @change="onPlayModeChange">
                 <option value="normal">顺序播放</option>

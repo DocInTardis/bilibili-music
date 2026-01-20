@@ -521,6 +521,10 @@ audio {
     backdrop-filter: blur(1px);
 }
 
+.cover-player.paused::before {
+    background: rgba(15, 23, 42, 0.7);
+}
+
 .cover-overlay {
     position: relative;
     z-index: 1;
@@ -790,6 +794,26 @@ audio {
     background: linear-gradient(135deg, rgba(245, 158, 11, 0.95), rgba(251, 191, 36, 0.95));
     color: #0f172a;
     font-weight: 600;
+}
+
+.bar-progress {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 200px;
+    flex: 1;
+}
+
+.bar-progress input[type="range"] {
+    width: 100%;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
+.bar-time {
+    font-size: 11px;
+    color: var(--muted);
+    text-align: right;
 }
 
 .bar-select {

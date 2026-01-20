@@ -42,7 +42,11 @@ createApp({
             feedbackText: '',
             feedbackSending: false,
             playHintVisible: false,
-            playHintTimer: null
+            playHintTimer: null,
+            audioCurrentTime: 0,
+            audioDuration: 0,
+            isSeeking: false,
+            isPlaySwitching: false
         };
     },
     computed: {
@@ -600,6 +604,20 @@ createApp({
                 this.playHintTimer = null;
             }, 1400);
         },
+        restartFromStart() {
+            const audio = this.$refs.audioPlayer;
+            if (!audio) {
+                return;
+            }
+            audio.currentTime = 0;
+            this.audioCurrentTime = 0;
+            if (this.isPlaying) {
+                this.syncVideoWithAudio(true);
+                this.showPlayHint();
+            } else if (this.showVideoContent) {
+                this.playerSrc = '';
+            }
+        },
         handleAudioEnded() {
             this.isPlaying = false;
             this.playNext();
@@ -609,6 +627,61 @@ createApp({
         },
         onAudioPause() {
             this.isPlaying = false;
+        },
+        onAudioTimeUpdate(event) {
+            if (this.isSeeking) {
+                return;
+            }
+            const audio = event && event.target ? event.target : this.$refs.audioPlayer;
+            if (!audio) return;
+            if (Number.isFinite(audio.currentTime)) {
+                this.audioCurrentTime = Math.floor(audio.currentTime);
+            }
+            if (Number.isFinite(audio.duration)) {
+                this.audioDuration = Math.floor(audio.duration);
+            }
+        },
+        onAudioLoadedMetadata(event) {
+            const audio = event && event.target ? event.target : this.$refs.audioPlayer;
+            if (!audio) return;
+            if (Number.isFinite(audio.duration)) {
+                this.audioDuration = Math.floor(audio.duration);
+            }
+            if (Number.isFinite(audio.currentTime)) {
+                this.audioCurrentTime = Math.floor(audio.currentTime);
+            }
+        },
+        onSeekInput(event) {
+            const value = Number(event.target.value);
+            if (!Number.isFinite(value)) return;
+            this.isSeeking = true;
+            this.audioCurrentTime = Math.floor(value);
+        },
+        onSeekCommit(event) {
+            const value = Number(event.target.value);
+            if (!Number.isFinite(value)) {
+                this.isSeeking = false;
+                return;
+            }
+            const audio = this.$refs.audioPlayer;
+            if (audio) {
+                audio.currentTime = value;
+                if (this.isPlaying) {
+                    this.syncVideoWithAudio(false);
+                } else if (this.showVideoContent) {
+                    this.playerSrc = '';
+                }
+            }
+            this.isSeeking = false;
+        },
+        formatTime(value) {
+            if (!Number.isFinite(value) || value < 0) {
+                return '0:00';
+            }
+            const total = Math.floor(value);
+            const m = Math.floor(total / 60);
+            const s = total % 60;
+            return `${m}:${String(s).padStart(2, '0')}`;
         },
         extractBvid(url) {
             if (!url) return null;
@@ -689,28 +762,40 @@ createApp({
             if (!audio) {
                 return;
             }
+            if (this.isPlaySwitching) {
+                return;
+            }
             if (!this.audioSrc && this.currentVideoIndex >= 0) {
                 this.playVideo(this.currentVideoIndex);
                 return;
             }
             if (this.isPlaying) {
+                this.isPlaySwitching = true;
                 audio.pause();
                 this.isPlaying = false;
+                if (this.showVideoContent) {
+                    this.playerSrc = '';
+                }
+                this.isPlaySwitching = false;
             } else {
+                this.isPlaySwitching = true;
                 const playPromise = audio.play();
                 if (playPromise) {
                     playPromise.then(() => {
                         this.isPlaying = true;
                         this.syncVideoWithAudio(false);
                         this.showPlayHint();
+                        this.isPlaySwitching = false;
                     }).catch(() => {
                         this.isPlaying = false;
+                        this.isPlaySwitching = false;
                         this.addStatus('音频播放失败，请稍后重试');
                     });
                 } else {
                     this.isPlaying = true;
                     this.syncVideoWithAudio(false);
                     this.showPlayHint();
+                    this.isPlaySwitching = false;
                 }
             }
         },
