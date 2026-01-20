@@ -88,7 +88,7 @@ agent:
 
 job:
   queue:
-    enabled: ${JOB_QUEUE_ENABLED:true}
+    enabled: ${JOB_QUEUE_ENABLED:false}
     poll-interval-ms: ${JOB_QUEUE_POLL_INTERVAL_MS:250}
     batch-size: ${JOB_QUEUE_BATCH_SIZE:4}
     max-attempts: ${JOB_QUEUE_MAX_ATTEMPTS:3}
