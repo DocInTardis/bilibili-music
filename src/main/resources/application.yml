@@ -51,11 +51,15 @@ ollama:
 
 bilibili:
   search-url-template: "https://search.bilibili.com/all?keyword={query}&from_source=webtop_search&spm_id_from=333.1007&search_source=3"
-  headless: ${BILIBILI_HEADLESS:false}  # 设置为 false 可以显示浏览器窗口，便于调试和观察
+  headless: ${BILIBILI_HEADLESS:true}  # 设置为 true 时不显示浏览器窗口
   search-timeout-ms: ${BILIBILI_SEARCH_TIMEOUT_MS:25000}
   navigate-timeout-ms: ${BILIBILI_NAVIGATE_TIMEOUT_MS:15000}
   detail-fetch-timeout-ms: ${BILIBILI_DETAIL_FETCH_TIMEOUT_MS:6000}
   detail-fetch-concurrency: ${BILIBILI_DETAIL_FETCH_CONCURRENCY:8}
+
+video:
+  detail:
+    refresh-hours: ${VIDEO_DETAIL_REFRESH_HOURS:72}
 
 # 安全相关的默认配置（建议按环境覆盖）
 app:

@@ -37,6 +37,7 @@ public class BilibiliSearchService {
     private static final Pattern BVID_PATTERN = Pattern.compile("/video/(BV[0-9A-Za-z]+)", Pattern.CASE_INSENSITIVE);
 
     private final CacheService cacheService;
+    private final VideoDetailCacheService videoDetailCacheService;
 
     @Value("${bilibili.search-url-template}")
     private String searchUrlTemplate;
@@ -108,9 +109,17 @@ public class BilibiliSearchService {
             .tags("")
             .description("")
             .build());
+        VideoDetailCacheService.CacheEntry cachedDb = videoDetailCacheService.findDetail(bvid, url);
+        if (cachedDb != null && cachedDb.video() != null) {
+            applyCachedDetail(cachedDb.video(), result.get(0));
+            if (!cachedDb.stale()) {
+                return result.get(0);
+            }
+        }
         VideoInfo cached = cacheService.getCachedVideoDetail(bvid, url);
         if (cached != null) {
             applyCachedDetail(cached, result.get(0));
+            videoDetailCacheService.upsertVideoDetail(result.get(0), cachedDb == null || cachedDb.stale());
             return result.get(0);
         }
         try (Playwright playwright = Playwright.create()) {
@@ -118,6 +127,7 @@ public class BilibiliSearchService {
             if (hasAnyDetail(result.get(0))) {
                 cacheService.cacheVideoDetail(result.get(0));
             }
+            videoDetailCacheService.upsertVideoDetail(result.get(0), true);
         } catch (Exception e) {
             log.error("Playwright 抓取单个视频详情失败: {}", url, e);
         }
@@ -251,13 +261,30 @@ public class BilibiliSearchService {
                 }
             }
             
-            // 优先使用 HttpClient 并行抓取详情，失败时回退到 Playwright 方案
-            try {
-                enrichVideoDetailsWithHttp(result);
-            } catch (Exception ex) {
-                log.warn("HTTP 抓取视频详情失败，将回退到 Playwright 方案: {}", ex.getMessage());
-                enrichVideoDetailsWithPlaywright(playwright, result);
+            List<VideoInfo> refreshTargets = new ArrayList<>();
+            java.util.Set<String> refreshKeys = new java.util.HashSet<>();
+            for (VideoInfo video : result) {
+                VideoDetailCacheService.CacheEntry cachedDb = videoDetailCacheService.findDetail(video.getBvid(), video.getUrl());
+                if (cachedDb != null && cachedDb.video() != null) {
+                    applyCachedDetail(cachedDb.video(), video);
+                    if (!cachedDb.stale()) {
+                        continue;
+                    }
+                }
+                refreshTargets.add(video);
+                refreshKeys.add(buildVideoKey(video));
             }
+
+            if (!refreshTargets.isEmpty()) {
+                // 优先使用 HttpClient 并行抓取详情，失败时回退到 Playwright 方案
+                try {
+                    enrichVideoDetailsWithHttp(refreshTargets);
+                } catch (Exception ex) {
+                    log.warn("HTTP 抓取视频详情失败，将回退到 Playwright 方案: {}", ex.getMessage());
+                    enrichVideoDetailsWithPlaywright(playwright, refreshTargets);
+                }
+            }
+            persistSearchResults(result, refreshKeys);
                         
             log.info("最终解析到 {} 个视频", result.size());
         } catch (Exception e) {
@@ -579,6 +606,30 @@ public class BilibiliSearchService {
         if (cached.getCommentCount() != null) {
             target.setCommentCount(cached.getCommentCount());
         }
+    }
+
+    private void persistSearchResults(List<VideoInfo> videos, java.util.Set<String> refreshKeys) {
+        if (videos == null || videos.isEmpty()) {
+            return;
+        }
+        java.util.Set<String> keys = refreshKeys != null ? refreshKeys : java.util.Collections.emptySet();
+        for (VideoInfo video : videos) {
+            boolean refreshAttempted = keys.contains(buildVideoKey(video));
+            videoDetailCacheService.upsertVideoDetail(video, refreshAttempted);
+        }
+    }
+
+    private String buildVideoKey(VideoInfo video) {
+        if (video == null) {
+            return "";
+        }
+        if (video.getBvid() != null && !video.getBvid().isBlank()) {
+            return "bvid:" + video.getBvid().trim();
+        }
+        if (video.getUrl() != null && !video.getUrl().isBlank()) {
+            return "url:" + video.getUrl().trim();
+        }
+        return "";
     }
 
     private Long parseCountText(String text) {
