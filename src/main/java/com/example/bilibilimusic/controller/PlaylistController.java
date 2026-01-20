@@ -20,6 +20,7 @@ import com.example.bilibilimusic.service.ContextPersistenceService;
 import com.example.bilibilimusic.service.ObservabilityService;
 import com.example.bilibilimusic.service.PromptVersionService;
 import com.example.bilibilimusic.service.UserBehaviorFeedbackService;
+import com.example.bilibilimusic.service.DailyRecommendationService;
 import com.example.bilibilimusic.service.VideoFeedbackService;
 import com.example.bilibilimusic.service.telemetry.DecisionTelemetryService;
 import com.example.bilibilimusic.service.telemetry.LlmTelemetryService;
@@ -49,6 +50,7 @@ public class PlaylistController {
     private final LlmTelemetryService llmTelemetryService;
     private final DecisionTelemetryService decisionTelemetryService;
     private final VideoFeedbackService videoFeedbackService;
+    private final DailyRecommendationService dailyRecommendationService;
     private final Environment environment;
 
     @PostMapping
@@ -214,11 +216,12 @@ public class PlaylistController {
      * 每日推荐榜单：随机返回若干视频
      */
     @GetMapping("/daily/recommend")
-    public ResponseEntity<PlaylistResponse> getDailyRecommend(@RequestParam(defaultValue = "10") int limit) {
-        java.util.List<VideoInfo> videos = databaseService.getRandomRecommendations(limit);
+    public ResponseEntity<PlaylistResponse> getDailyRecommend(@RequestParam(defaultValue = "10") int limit,
+                                                              @RequestParam(required = false) Long conversationId) {
+        java.util.List<VideoInfo> videos = dailyRecommendationService.getDailyRecommendations(conversationId, limit);
         PlaylistResponse response = PlaylistResponse.builder()
             .videos(videos)
-            .summary(String.format("为您随机推荐 %d 首 B 站音乐视频", videos != null ? videos.size() : 0))
+            .summary(String.format("今日推荐 %d 首：结合你的偏好与 B 站音乐榜单", videos != null ? videos.size() : 0))
             .build();
         return ResponseEntity.ok(response);
     }

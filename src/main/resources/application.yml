@@ -56,6 +56,14 @@ bilibili:
   navigate-timeout-ms: ${BILIBILI_NAVIGATE_TIMEOUT_MS:15000}
   detail-fetch-timeout-ms: ${BILIBILI_DETAIL_FETCH_TIMEOUT_MS:6000}
   detail-fetch-concurrency: ${BILIBILI_DETAIL_FETCH_CONCURRENCY:8}
+  daily-rank-url: ${BILIBILI_DAILY_RANK_URL:https://api.bilibili.com/x/web-interface/ranking/v2?rid=3&type=all}
+  daily-rank-timeout-ms: ${BILIBILI_DAILY_RANK_TIMEOUT_MS:8000}
+  daily-rank-cache-seconds: ${BILIBILI_DAILY_RANK_CACHE_SECONDS:600}
+
+recommend:
+  daily:
+    personal-weight: ${RECOMMEND_DAILY_PERSONAL_WEIGHT:0.7}
+    rank-weight: ${RECOMMEND_DAILY_RANK_WEIGHT:0.3}
 
 video:
   detail:
