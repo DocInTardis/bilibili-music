@@ -36,7 +36,11 @@ createApp({
             executionCompareRows: [],
             observability: null,
             messageSeq: 1,
-            whyDetail: null
+            whyDetail: null,
+            showVideoContent: true,
+            feedbackTarget: null,
+            feedbackText: '',
+            feedbackSending: false
         };
     },
     computed: {
@@ -49,7 +53,7 @@ createApp({
         currentDisplayTitle() {
             if (this.currentVideo) {
                 const trackNo = this.currentVideo.trackNo != null ? `#${this.currentVideo.trackNo} ` : '';
-                return `${trackNo}${this.currentVideo.title || '未命名视频'}`;
+                return `${trackNo}${this.getVideoTitle(this.currentVideo)}`;
             }
             return '欢迎使用 Bilibili 音乐助手';
         },
@@ -64,6 +68,19 @@ createApp({
     mounted() {
         this.connectWebSocket();
         this.loadConversations();
+        try {
+            const saved = localStorage.getItem('showVideoContent');
+            if (saved !== null) {
+                this.showVideoContent = saved === 'true';
+            }
+        } catch (e) {}
+    },
+    watch: {
+        showVideoContent(value) {
+            try {
+                localStorage.setItem('showVideoContent', value ? 'true' : 'false');
+            } catch (e) {}
+        }
     },
     methods: {
         messageAvatar(kind) {
@@ -278,6 +295,95 @@ createApp({
                 return video.trackNo;
             }
             return index + 1;
+        },
+        getVideoTitle(video) {
+            if (!video) return '未命名视频';
+            const custom = typeof video.customTitle === 'string' ? video.customTitle.trim() : '';
+            return custom || video.title || '未命名视频';
+        },
+        renameVideo(video) {
+            if (!video) {
+                this.addStatus('当前没有可重命名的视频');
+                return;
+            }
+            const current = this.getVideoTitle(video);
+            const next = window.prompt('重命名当前视频：', current);
+            if (next === null) {
+                return;
+            }
+            const cleaned = next.trim();
+            if (cleaned) {
+                video.customTitle = cleaned;
+                this.addStatus(`已重命名：${cleaned}`);
+            } else {
+                video.customTitle = '';
+                this.addStatus('已清除自定义标题');
+            }
+        },
+        openFeedback(video) {
+            if (!video) {
+                this.addStatus('当前没有可引用的视频');
+                return;
+            }
+            this.feedbackTarget = video;
+            this.feedbackText = '';
+        },
+        closeFeedback() {
+            this.feedbackTarget = null;
+            this.feedbackText = '';
+            this.feedbackSending = false;
+        },
+        async submitFeedback() {
+            if (!this.feedbackTarget) return;
+            const text = (this.feedbackText || '').trim();
+            if (!text) {
+                this.addStatus('请输入你的看法后再提交');
+                return;
+            }
+            const video = this.feedbackTarget;
+            this.ensureVideoBvid(video);
+            const title = this.getVideoTitle(video);
+            this.addUser(`【引用：${title}】${text}`);
+            this.feedbackSending = true;
+            try {
+                const resp = await fetch('/api/playlist/video-feedback', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        conversationId: this.currentConversationId,
+                        bvid: video.bvid || '',
+                        title: video.title || '',
+                        author: video.author || '',
+                        url: video.url || '',
+                        comment: text
+                    })
+                });
+                if (!resp.ok) {
+                    this.addStatus('评价提交失败，请稍后重试');
+                    return;
+                }
+                const data = await resp.json();
+                if (data && data.reply) {
+                    this.addAgent(data.reply);
+                } else {
+                    this.addAgent('已记录你的看法，并更新个性化偏好。');
+                }
+                const applied = [];
+                if (data && data.appliedArtists && Object.keys(data.appliedArtists).length) {
+                    applied.push(`艺人：${Object.keys(data.appliedArtists).join(' / ')}`);
+                }
+                if (data && data.appliedKeywords && Object.keys(data.appliedKeywords).length) {
+                    applied.push(`关键词：${Object.keys(data.appliedKeywords).join(' / ')}`);
+                }
+                if (applied.length) {
+                    this.addStatus(`已更新偏好：${applied.join(' | ')}`);
+                }
+                this.closeFeedback();
+            } catch (e) {
+                this.addStatus('评价提交失败，请检查网络');
+            } finally {
+                this.feedbackSending = false;
+            }
         },
         ensureVideoBvid(video) {
             if (!video) return;

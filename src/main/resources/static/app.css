@@ -390,6 +390,18 @@ audio {
     gap: 8px;
 }
 
+.player-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+}
+
+.player-actions .btn.ghost {
+    padding: 6px 10px;
+    font-size: 12px;
+}
+
 .badge {
     padding: 6px 10px;
     border-radius: 999px;
@@ -725,6 +737,24 @@ audio {
     padding-left: 18px;
     color: var(--muted);
     font-size: 13px;
+}
+
+.modal-card textarea {
+    resize: vertical;
+    min-height: 88px;
+    border-radius: 12px;
+    border: 1px solid var(--stroke);
+    padding: 10px 12px;
+    background: rgba(15, 23, 42, 0.6);
+    color: var(--text);
+    font-size: 13px;
+    outline: none;
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
 }
 
 .empty-state {

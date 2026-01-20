@@ -12,6 +12,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -31,6 +32,7 @@ public class UserPreferenceService {
 
     private final AtomicBoolean dbAvailable = new AtomicBoolean(true);
     private final AtomicBoolean dbFailureLogged = new AtomicBoolean(false);
+    private final Map<Long, Map<String, Integer>> memoryPreferences = new ConcurrentHashMap<>();
     
     // 序列特征参数：最近 N 次交互窗口与增益系数
     private static final int SEQUENTIAL_WINDOW = 5;
@@ -72,6 +74,7 @@ public class UserPreferenceService {
             return;
         }
         if (!isDbUsable()) {
+            updateMemoryPreference(conversationId, type, target, deltaWeight);
             cacheService.incrementPreference(conversationId, type, target, deltaWeight);
             return;
         }
@@ -164,7 +167,9 @@ public class UserPreferenceService {
      */
     public Map<String, Integer> getArtistPreferences(Long conversationId) {
         if (!isDbUsable()) {
-            return cacheService.getArtistPreferences(conversationId);
+            Map<String, Integer> memory = getMemoryPreferencesByType(conversationId, "artist");
+            Map<String, Integer> cache = cacheService.getArtistPreferences(conversationId);
+            return mergePreferenceMaps(memory, cache);
         }
         try {
             List<UserPreference> preferences = preferenceMapper.findByConversationIdAndType(conversationId, "artist");
@@ -210,7 +215,9 @@ public class UserPreferenceService {
      */
     public Map<String, Integer> getKeywordPreferences(Long conversationId) {
         if (!isDbUsable()) {
-            return cacheService.getKeywordPreferences(conversationId);
+            Map<String, Integer> memory = getMemoryPreferencesByType(conversationId, "keyword");
+            Map<String, Integer> cache = cacheService.getKeywordPreferences(conversationId);
+            return mergePreferenceMaps(memory, cache);
         }
         try {
             List<UserPreference> preferences = preferenceMapper.findByConversationIdAndType(conversationId, "keyword");
@@ -300,6 +307,8 @@ public class UserPreferenceService {
 
     private Map<String, Integer> getCachedPreferenceWeights(Long conversationId) {
         Map<String, Integer> out = new HashMap<>();
+        Map<String, Integer> memory = getMemoryPreferences(conversationId);
+        out.putAll(memory);
         Map<String, Integer> artist = cacheService.getArtistPreferences(conversationId);
         Map<String, Integer> keyword = cacheService.getKeywordPreferences(conversationId);
         for (Map.Entry<String, Integer> e : artist.entrySet()) {
@@ -307,6 +316,53 @@ public class UserPreferenceService {
         }
         for (Map.Entry<String, Integer> e : keyword.entrySet()) {
             out.put("keyword:" + e.getKey(), e.getValue());
+        }
+        return out;
+    }
+
+    private void updateMemoryPreference(Long conversationId, String type, String target, int deltaWeight) {
+        if (conversationId == null || type == null || target == null) {
+            return;
+        }
+        String key = type + ":" + target.toLowerCase();
+        Map<String, Integer> bucket = memoryPreferences.computeIfAbsent(conversationId, k -> new ConcurrentHashMap<>());
+        bucket.merge(key, deltaWeight, Integer::sum);
+    }
+
+    private Map<String, Integer> getMemoryPreferences(Long conversationId) {
+        if (conversationId == null) {
+            return new HashMap<>();
+        }
+        Map<String, Integer> bucket = memoryPreferences.get(conversationId);
+        return bucket != null ? new HashMap<>(bucket) : new HashMap<>();
+    }
+
+    private Map<String, Integer> getMemoryPreferencesByType(Long conversationId, String type) {
+        Map<String, Integer> bucket = getMemoryPreferences(conversationId);
+        if (bucket.isEmpty()) {
+            return new HashMap<>();
+        }
+        Map<String, Integer> result = new HashMap<>();
+        String prefix = type + ":";
+        for (Map.Entry<String, Integer> entry : bucket.entrySet()) {
+            String key = entry.getKey();
+            if (key != null && key.startsWith(prefix)) {
+                String target = key.substring(prefix.length());
+                result.put(target, entry.getValue());
+            }
+        }
+        return result;
+    }
+
+    private Map<String, Integer> mergePreferenceMaps(Map<String, Integer> a, Map<String, Integer> b) {
+        Map<String, Integer> out = new HashMap<>();
+        if (a != null) {
+            out.putAll(a);
+        }
+        if (b != null) {
+            for (Map.Entry<String, Integer> entry : b.entrySet()) {
+                out.merge(entry.getKey(), entry.getValue(), Integer::sum);
+            }
         }
         return out;
     }

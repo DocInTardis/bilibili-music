@@ -16,6 +16,15 @@
                     <h1>Bilibili 音乐助手</h1>
                     <p>多阶段 Agent + 实时推荐，专注音乐视频的可解释决策。</p>
                 </div>
+                <textarea v-model="feedbackText" rows="4" placeholder="???????????..."></textarea>
+                <div class="modal-actions">
+                    <button class="btn ghost" @click="closeFeedback">??</button>
+                    <button class="btn" @click="submitFeedback" :disabled="feedbackSending">
+                        {{ feedbackSending ? "???..." : "??" }}
+                    </button>
+                </div>
+            </div>
+        </div>
             </div>
             <div class="status-chip" :class="{ online: wsConnected }">
                 <span class="dot"></span>
@@ -83,12 +92,14 @@
                     >
                         <div class="track-title">
                             <span class="track-index">{{ displayTrackIndex(video, index) }}</span>
-                            <span>{{ video.title || '未命名视频' }}</span>
+                            <span>{{ getVideoTitle(video) }}</span>
                         </div>
                         <div class="track-meta">
                             <span>👤 {{ video.author || '未知作者' }}</span>
                             <span>⏱ {{ video.duration || '未知' }}</span>
                             <button class="icon-btn" @click.stop="showWhy(video)">Why</button>
+                            <button class="icon-btn" @click.stop="renameVideo(video)">??</button>
+                            <button class="icon-btn" @click.stop="openFeedback(video)">??</button>
                             <button class="icon-btn" @click.stop="downloadMp3(video)">下载</button>
                             <button class="icon-btn" @click.stop="likeVideo(video)">❤</button>
                         </div>
@@ -107,9 +118,17 @@
                         <span v-if="recommendationExplanation?.summary" class="badge">{{ recommendationExplanation.summary }}</span>
                         <span v-if="isDownloading" class="badge">音频准备中...</span>
                     </div>
+                    <div class="player-actions">
+                        <label class="switch">
+                            <input type="checkbox" v-model="showVideoContent" />
+                            ????
+                        </label>
+                        <button class="btn ghost" @click="renameVideo(currentVideo)" :disabled="!currentVideo">???</button>
+                        <button class="btn ghost" @click="openFeedback(currentVideo)" :disabled="!currentVideo">????</button>
+                    </div>
                 </div>
                 <div class="player-body">
-                    <div v-if="playerSrc" class="player-frame">
+                    <div v-if="showVideoContent && playerSrc" class="player-frame">
                         <iframe
                             id="bilibiliPlayer"
                             :src="playerSrc"
@@ -117,6 +136,12 @@
                             allow="autoplay"
                             sandbox="allow-top-navigation allow-forms allow-scripts allow-popups"
                         ></iframe>
+                    </div>
+                    <div v-else-if="playerSrc" class="empty-player">
+                        <div>
+                            <div style="font-size:32px; margin-bottom:8px;">??</div>
+                            <div>???????????????</div>
+                        </div>
                     </div>
                     <div v-else class="empty-player">
                         <div>
@@ -288,12 +313,27 @@
 
         <div v-if="whyDetail" class="modal" @click.self="closeWhy">
             <div class="modal-card">
-                <h3>推荐解释</h3>
+                <h3>????</h3>
                 <div style="font-size:13px; color: var(--muted);">{{ whyDetail.title }}</div>
                 <ul>
                     <li v-for="(line, idx) in whyDetail.lines" :key="idx">{{ line }}</li>
                 </ul>
-                <button class="btn" @click="closeWhy">关闭</button>
+                <button class="btn" @click="closeWhy">??</button>
+            </div>
+        </div>
+        <div v-if="feedbackTarget" class="modal" @click.self="closeFeedback">
+            <div class="modal-card">
+                <h3>??????</h3>
+                <div style="font-size:13px; color: var(--muted);">
+                    {{ getVideoTitle(feedbackTarget) }} ? {{ feedbackTarget.author || "????" }}
+                </div>
+                <textarea v-model="feedbackText" rows="4" placeholder="???????????..."></textarea>
+                <div class="modal-actions">
+                    <button class="btn ghost" @click="closeFeedback">??</button>
+                    <button class="btn" @click="submitFeedback" :disabled="feedbackSending">
+                        {{ feedbackSending ? "???..." : "??" }}
+                    </button>
+                </div>
             </div>
         </div>
     </div>

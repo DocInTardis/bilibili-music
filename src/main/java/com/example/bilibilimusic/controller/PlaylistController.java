@@ -10,13 +10,17 @@ import com.example.bilibilimusic.dto.ExecutionOverview;
 import com.example.bilibilimusic.dto.ErrorStats;
 import com.example.bilibilimusic.dto.UserBehaviorRequest;
 import com.example.bilibilimusic.dto.VideoInfo;
+import com.example.bilibilimusic.dto.VideoFeedbackRequest;
+import com.example.bilibilimusic.dto.VideoFeedbackResponse;
 import com.example.bilibilimusic.entity.UserBehaviorEvent;
+import com.example.bilibilimusic.entity.Video;
 import com.example.bilibilimusic.context.PlaylistContext;
 import com.example.bilibilimusic.service.DatabaseService;
 import com.example.bilibilimusic.service.ContextPersistenceService;
 import com.example.bilibilimusic.service.ObservabilityService;
 import com.example.bilibilimusic.service.PromptVersionService;
 import com.example.bilibilimusic.service.UserBehaviorFeedbackService;
+import com.example.bilibilimusic.service.VideoFeedbackService;
 import com.example.bilibilimusic.service.telemetry.DecisionTelemetryService;
 import com.example.bilibilimusic.service.telemetry.LlmTelemetryService;
 import jakarta.validation.Valid;
@@ -44,6 +48,7 @@ public class PlaylistController {
     private final PromptVersionService promptVersionService;
     private final LlmTelemetryService llmTelemetryService;
     private final DecisionTelemetryService decisionTelemetryService;
+    private final VideoFeedbackService videoFeedbackService;
     private final Environment environment;
 
     @PostMapping
@@ -246,6 +251,56 @@ public class PlaylistController {
     /**
      * 增加视频权重（点击爱心按钮）
      */
+    /**
+     * 视频评价反馈，用于更新个性化偏好
+     */
+    @PostMapping("/video-feedback")
+    public ResponseEntity<VideoFeedbackResponse> submitVideoFeedback(@RequestBody VideoFeedbackRequest request) {
+        if (request == null || request.getComment() == null || request.getComment().isBlank()) {
+            return ResponseEntity.badRequest().build();
+        }
+        Long conversationId = request.getConversationId();
+        if (conversationId == null) {
+            conversationId = databaseService.getOrCreateActiveConversation().getId();
+        }
+        String bvid = request.getBvid();
+        if ((bvid == null || bvid.isBlank()) && request.getUrl() != null) {
+            bvid = extractBvid(request.getUrl());
+        }
+        VideoInfo info = VideoInfo.builder()
+            .bvid(bvid)
+            .title(request.getTitle())
+            .author(request.getAuthor())
+            .url(request.getUrl())
+            .build();
+        if ((info.getTitle() == null || info.getTitle().isBlank()) && bvid != null) {
+            Video video = databaseService.findVideoByBvid(bvid);
+            if (video != null) {
+                info = VideoInfo.builder()
+                    .bvid(bvid)
+                    .title(video.getTitle())
+                    .author(request.getAuthor())
+                    .url(video.getUrl())
+                    .tags(video.getTags())
+                    .description(video.getDescription())
+                    .build();
+            }
+        }
+        VideoFeedbackResponse response = videoFeedbackService.handleFeedback(conversationId, null, info, request.getComment());
+        return ResponseEntity.ok(response);
+    }
+
+    private String extractBvid(String url) {
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("/video/(BV[a-zA-Z0-9]+)").matcher(url);
+        if (matcher.find()) {
+            return matcher.group(1);
+        }
+        return null;
+    }
+
     @PostMapping("/item/{itemId}/like")
     public ResponseEntity<Void> likeItem(@PathVariable Long itemId) {
         log.info("[REST API] 增加视频权重: itemId={}", itemId);
