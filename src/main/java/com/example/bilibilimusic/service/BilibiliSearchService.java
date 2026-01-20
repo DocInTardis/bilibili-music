@@ -189,10 +189,22 @@ public class BilibiliSearchService {
                             title = link.innerText().trim();
                         }
                         if (href != null && href.contains("/video/") && !title.isEmpty()) {
+                            String cover = null;
+                            ElementHandle img = link.querySelector("img");
+                            if (img != null) {
+                                cover = firstNonBlank(
+                                    img.getAttribute("data-src"),
+                                    img.getAttribute("data-original"),
+                                    img.getAttribute("data-srcset"),
+                                    img.getAttribute("src")
+                                );
+                                cover = normalizeCoverUrl(cover);
+                            }
                             String finalUrl = href.startsWith("http") ? href : "https:" + href;
                             result.add(VideoInfo.builder()
                                     .bvid(extractBvid(finalUrl))
                                     .title(title)
+                                    .coverUrl(cover)
                                     .url(finalUrl)
                                     .author("未知")
                                     .duration("未知")
@@ -245,9 +257,21 @@ public class BilibiliSearchService {
                         }
                         String duration = durationSpan != null ? durationSpan.innerText().trim() : "未知";
 
+                        String cover = null;
+                        ElementHandle img = card.querySelector("img");
+                        if (img != null) {
+                            cover = firstNonBlank(
+                                img.getAttribute("data-src"),
+                                img.getAttribute("data-original"),
+                                img.getAttribute("data-srcset"),
+                                img.getAttribute("src")
+                            );
+                            cover = normalizeCoverUrl(cover);
+                        }
                         result.add(VideoInfo.builder()
                                 .bvid(extractBvid(finalUrl))
                                 .title(title)
+                                .coverUrl(cover)
                                 .url(finalUrl)
                                 .author(author)
                                 .duration(duration)
@@ -385,6 +409,17 @@ public class BilibiliSearchService {
                 video.setDescription(description);
             }
         }
+
+        if (video.getCoverUrl() == null || video.getCoverUrl().isBlank()) {
+            Matcher ogMatcher = Pattern.compile("<meta[^>]+property=['\"]og:image['\"][^>]*content=['\"](.*?)['\"]", Pattern.CASE_INSENSITIVE | Pattern.DOTALL)
+                .matcher(html);
+            if (ogMatcher.find()) {
+                String cover = normalizeCoverUrl(ogMatcher.group(1).trim());
+                if (cover != null && !cover.isBlank()) {
+                    video.setCoverUrl(cover);
+                }
+            }
+        }
     
         // 4. 播放量 / 评论数
         Long playCount = extractCountFromHtml(html, "播放", "观看");
@@ -458,6 +493,17 @@ public class BilibiliSearchService {
                     String description = detailPage.getAttribute("head meta[name='description']", "content");
                     if (description != null && !description.isBlank()) {
                         video.setDescription(description);
+                    }
+
+                    if (video.getCoverUrl() == null || video.getCoverUrl().isBlank()) {
+                        String cover = detailPage.getAttribute("head meta[property='og:image']", "content");
+                        if (cover == null || cover.isBlank()) {
+                            cover = detailPage.getAttribute("head meta[itemprop='image']", "content");
+                        }
+                        cover = normalizeCoverUrl(cover);
+                        if (cover != null && !cover.isBlank()) {
+                            video.setCoverUrl(cover);
+                        }
                     }
 
                     // 4. 播放量：尝试从页面中提取
@@ -606,6 +652,36 @@ public class BilibiliSearchService {
         if (cached.getCommentCount() != null) {
             target.setCommentCount(cached.getCommentCount());
         }
+        if (cached.getCoverUrl() != null && !cached.getCoverUrl().isBlank()) {
+            target.setCoverUrl(cached.getCoverUrl());
+        }
+    }
+
+    private String normalizeCoverUrl(String url) {
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+        String clean = url.trim();
+        if (clean.startsWith("//")) {
+            clean = "https:" + clean;
+        }
+        int atIdx = clean.indexOf('@');
+        if (atIdx > 0) {
+            clean = clean.substring(0, atIdx);
+        }
+        return clean;
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String v : values) {
+            if (v != null && !v.isBlank()) {
+                return v.trim();
+            }
+        }
+        return null;
     }
 
     private void persistSearchResults(List<VideoInfo> videos, java.util.Set<String> refreshKeys) {

@@ -325,6 +325,25 @@ audio {
     font-weight: 600;
 }
 
+.track-title-content {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.track-title-text {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.track-bvid {
+    font-size: 11px;
+    color: var(--muted);
+    font-weight: 500;
+}
+
 .track-index {
     width: 24px;
     height: 24px;
@@ -444,6 +463,40 @@ audio {
     text-align: center;
     padding: 24px;
     font-size: 14px;
+}
+
+.cover-player {
+    position: relative;
+    border-style: solid;
+    background-size: cover;
+    background-position: center;
+    color: var(--text);
+}
+
+.cover-player::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.55);
+    backdrop-filter: blur(1px);
+}
+
+.cover-overlay {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+}
+
+.cover-icon {
+    font-size: 32px;
+}
+
+.cover-text {
+    font-size: 14px;
+    color: var(--muted);
 }
 
 .insight-grid {

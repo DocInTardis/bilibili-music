@@ -80,6 +80,11 @@ createApp({
             try {
                 localStorage.setItem('showVideoContent', value ? 'true' : 'false');
             } catch (e) {}
+            if (value) {
+                this.syncVideoWithAudio(true);
+            } else {
+                this.playerSrc = '';
+            }
         }
     },
     methods: {
@@ -301,6 +306,41 @@ createApp({
             const custom = typeof video.customTitle === 'string' ? video.customTitle.trim() : '';
             return custom || video.title || '未命名视频';
         },
+        getDisplayTitle(video) {
+            const title = this.getVideoTitle(video);
+            return this.summarizeTitle(title);
+        },
+        summarizeTitle(title) {
+            if (!title) return '未命名视频';
+            let text = title;
+            text = text.replace(/【.*?】/g, '');
+            text = text.replace(/\[.*?\]/g, '');
+            text = text.replace(/\(.*?\)/g, '');
+            text = text.replace(/（.*?）/g, '');
+            text = text.replace(/《.*?》/g, '');
+            text = text.replace(/[「『].*?[」』]/g, '');
+            text = text.replace(/\s+/g, ' ').trim();
+            text = text.replace(/(完整版|官方|高清|MV|Live|现场|纯音乐|无损|歌词版|完整版)/gi, '').trim();
+            const separators = text.split(/[-—|丨·]/).map(part => part.trim()).filter(Boolean);
+            if (separators.length >= 2) {
+                text = separators[separators.length - 1];
+            } else if (separators.length === 1) {
+                text = separators[0];
+            }
+            if (text.length > 24) {
+                text = `${text.slice(0, 24)}...`;
+            }
+            return text || title;
+        },
+        getCoverUrl(video) {
+            if (!video) return '';
+            return video.coverUrl || video.cover || video.pic || '';
+        },
+        getCoverStyle(video) {
+            const cover = this.getCoverUrl(video);
+            if (!cover) return {};
+            return { backgroundImage: `url('${cover}')` };
+        },
         renameVideo(video) {
             if (!video) {
                 this.addStatus('当前没有可重命名的视频');
@@ -405,54 +445,116 @@ createApp({
             if (video._mp3Url) {
                 return video._mp3Url;
             }
+            if (video._mp3Promise) {
+                return video._mp3Promise;
+            }
             if (!video.bvid && !video.url) {
                 const msg = '缺少视频地址，无法下载 MP3';
                 video._mp3Error = msg;
                 throw new Error(msg);
             }
-            const resp = await fetch('/api/media/mp3', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    bvid: video.bvid || '',
-                    url: video.url || ''
-                })
-            });
-            if (!resp.ok) {
-                let msg = 'MP3 下载失败';
-                try {
-                    const data = await resp.json();
-                    if (data && (data.message || data.error)) {
-                        msg = data.message || data.error;
-                    }
-                } catch (e) {
+            const promise = (async () => {
+                const resp = await fetch('/api/media/mp3', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        bvid: video.bvid || '',
+                        url: video.url || ''
+                    })
+                });
+                if (!resp.ok) {
+                    let msg = 'MP3 下载失败';
                     try {
-                        const text = await resp.text();
-                        if (text) {
-                            msg = text;
+                        const data = await resp.json();
+                        if (data && (data.message || data.error)) {
+                            msg = data.message || data.error;
                         }
-                    } catch (ignored) {}
+                    } catch (e) {
+                        try {
+                            const text = await resp.text();
+                            if (text) {
+                                msg = text;
+                            }
+                        } catch (ignored) {}
+                    }
+                    video._mp3Error = msg;
+                    throw new Error(msg);
                 }
-                video._mp3Error = msg;
-                throw new Error(msg);
-            }
-            const data = await resp.json();
-            if (!data || !data.downloadUrl) {
-                const msg = 'MP3 地址缺失';
-                video._mp3Error = msg;
-                throw new Error(msg);
-            }
-            video._mp3Url = data.downloadUrl;
-            return data.downloadUrl;
+                const data = await resp.json();
+                const streamUrl = data && (data.streamUrl || data.downloadUrl);
+                const downloadUrl = data && (data.downloadUrl || data.streamUrl);
+                if (!streamUrl) {
+                    const msg = 'MP3 地址缺失';
+                    video._mp3Error = msg;
+                    throw new Error(msg);
+                }
+                video._mp3Url = streamUrl;
+                if (downloadUrl) {
+                    video._mp3DownloadUrl = downloadUrl;
+                }
+                return streamUrl;
+            })();
+            video._mp3Promise = promise.finally(() => {
+                video._mp3Promise = null;
+            });
+            return video._mp3Promise;
         },
         async downloadMp3(video) {
             try {
-                this.addStatus('正在下载 MP3...');
-                const url = await this.ensureMp3(video);
-                this.addStatus(`MP3 已就绪: ${url}`);
+                this.addStatus('正在准备下载 MP3...');
+                const streamUrl = await this.ensureMp3(video);
+                const downloadUrl = this.getMp3DownloadUrl(video, streamUrl);
+                const fileName = this.buildDownloadFileName(video);
+                this.triggerBrowserDownload(downloadUrl, fileName);
+                this.addStatus('已触发浏览器下载');
             } catch (e) {
                 this.addStatus(`MP3 下载失败: ${e && e.message ? e.message : '未知错误'}`);
             }
+        },
+        prefetchAround(index) {
+            if (!Array.isArray(this.playlist) || this.playlist.length === 0) {
+                return;
+            }
+            const targets = [];
+            if (index + 1 < this.playlist.length) targets.push(index + 1);
+            if (index + 2 < this.playlist.length) targets.push(index + 2);
+            targets.forEach(i => this.prefetchMp3ByIndex(i));
+        },
+        prefetchMp3ByIndex(index) {
+            if (index < 0 || index >= this.playlist.length) return;
+            const video = this.playlist[index];
+            if (!video || video._mp3Url || video._mp3Promise) return;
+            this.ensureMp3(video).catch(() => {});
+        },
+        getMp3DownloadUrl(video, fallbackUrl) {
+            if (video && video._mp3DownloadUrl) {
+                return video._mp3DownloadUrl;
+            }
+            if (video && video.bvid) {
+                return `/api/media/mp3/${video.bvid}/download`;
+            }
+            return fallbackUrl;
+        },
+        buildDownloadFileName(video) {
+            const base = this.getVideoTitle(video)
+                .replace(/[\\/:*?"<>|]/g, '')
+                .trim();
+            return base ? `${base}.mp3` : 'bilibili-music.mp3';
+        },
+        triggerBrowserDownload(url, fileName) {
+            if (!url) {
+                this.addStatus('下载链接不可用');
+                return;
+            }
+            const link = document.createElement('a');
+            link.href = url;
+            if (fileName) {
+                link.download = fileName;
+            }
+            link.rel = 'noopener';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
         },
         handleAudioEnded() {
             this.isPlaying = false;
@@ -469,18 +571,35 @@ createApp({
             const match = url.match(/\/video\/(BV[a-zA-Z0-9]+)/);
             return match ? match[1] : null;
         },
-        buildPlayerSrc(bvid) {
-            return `https://player.bilibili.com/player.html?bvid=${bvid}&page=1&high_quality=1&autoplay=0&muted=1`;
+        buildPlayerSrc(bvid, startSeconds) {
+            const start = startSeconds && startSeconds > 0 ? `&t=${Math.floor(startSeconds)}` : '';
+            const ts = Date.now();
+            return `https://player.bilibili.com/player.html?bvid=${bvid}&page=1&high_quality=1&autoplay=1&muted=1${start}&ts=${ts}`;
+        },
+        syncVideoWithAudio(forceStart) {
+            if (!this.showVideoContent) {
+                return;
+            }
+            const video = this.currentVideo;
+            if (!video) return;
+            this.ensureVideoBvid(video);
+            const bvid = video.bvid || this.extractBvid(video.url || '');
+            if (!bvid) return;
+            const audio = this.$refs.audioPlayer;
+            let startSeconds = 0;
+            if (!forceStart && audio && !Number.isNaN(audio.currentTime)) {
+                startSeconds = Math.floor(audio.currentTime);
+            }
+            this.playerSrc = this.buildPlayerSrc(bvid, startSeconds);
+            this.lastPlayerSrc = this.playerSrc;
         },
         async playVideo(index) {
             if (index < 0 || index >= this.playlist.length) return;
             this.currentVideoIndex = index;
             const video = this.playlist[index];
             this.ensureVideoBvid(video);
-            const bvid = this.extractBvid(video.url);
-            if (bvid) {
-                this.playerSrc = this.buildPlayerSrc(bvid);
-                this.lastPlayerSrc = this.playerSrc;
+            if (!this.showVideoContent) {
+                this.playerSrc = '';
             }
 
             const requestSeq = ++this.playRequestSeq;
@@ -499,14 +618,17 @@ createApp({
                     if (playPromise) {
                         playPromise.then(() => {
                             this.isPlaying = true;
+                            this.syncVideoWithAudio(true);
                         }).catch(() => {
                             this.isPlaying = false;
                             this.addStatus('音频播放失败，请点击播放按钮重试');
                         });
                     } else {
                         this.isPlaying = true;
+                        this.syncVideoWithAudio(true);
                     }
                 }
+                this.prefetchAround(index);
             } catch (e) {
                 this.isPlaying = false;
                 this.addStatus(`音频加载失败: ${e && e.message ? e.message : '未知错误'}`);
@@ -528,17 +650,22 @@ createApp({
             if (this.isPlaying) {
                 audio.pause();
                 this.isPlaying = false;
+                if (this.showVideoContent) {
+                    this.playerSrc = '';
+                }
             } else {
                 const playPromise = audio.play();
                 if (playPromise) {
                     playPromise.then(() => {
                         this.isPlaying = true;
+                        this.syncVideoWithAudio(false);
                     }).catch(() => {
                         this.isPlaying = false;
                         this.addStatus('音频播放失败，请稍后重试');
                     });
                 } else {
                     this.isPlaying = true;
+                    this.syncVideoWithAudio(false);
                 }
             }
         },

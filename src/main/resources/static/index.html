@@ -83,7 +83,10 @@
                     >
                         <div class="track-title">
                             <span class="track-index">{{ displayTrackIndex(video, index) }}</span>
-                            <span>{{ getVideoTitle(video) }}</span>
+                            <div class="track-title-content">
+                                <div class="track-title-text" :title="getVideoTitle(video)">{{ getDisplayTitle(video) }}</div>
+                                <div class="track-bvid">{{ video.bvid || 'BV未知' }}</div>
+                            </div>
                         </div>
                         <div class="track-meta">
                             <span>作者 {{ video.author || '未知作者' }}</span>
@@ -124,14 +127,13 @@
                             id="bilibiliPlayer"
                             :src="playerSrc"
                             allowfullscreen
-                            allow="autoplay"
-                            sandbox="allow-same-origin allow-top-navigation allow-forms allow-scripts allow-popups"
+                            allow="autoplay; fullscreen; picture-in-picture"
                         ></iframe>
                     </div>
-                    <div v-else-if="playerSrc" class="empty-player">
-                        <div>
-                            <div style="font-size:32px; margin-bottom:8px;">视频已隐藏</div>
-                            <div>已隐藏视频内容，可随时开启显示。</div>
+                    <div v-else-if="currentVideo" class="empty-player cover-player" :style="getCoverStyle(currentVideo)">
+                        <div class="cover-overlay">
+                            <div class="cover-icon">🎵</div>
+                            <div class="cover-text">正在播放</div>
                         </div>
                     </div>
                     <div v-else class="empty-player">

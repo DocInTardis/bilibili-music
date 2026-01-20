@@ -15,6 +15,7 @@ public class VideoInfo {
     private String description;  // 新增：视频描述（可选）
     private Long playCount;  // 新增：播放量
     private Long commentCount;  // 新增：评论数
+    private String coverUrl;  // 视频封面
 
     // Album/track metadata (optional, for ordered album playback UX)
     private String albumTitle;

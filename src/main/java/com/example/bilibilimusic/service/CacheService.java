@@ -493,6 +493,7 @@ public class CacheService {
                 .title(video.getTitle())
                 .tags(video.getTags())
                 .description(video.getDescription())
+                .coverUrl(video.getCoverUrl())
                 .playCount(video.getPlayCount())
                 .commentCount(video.getCommentCount())
                 .build();

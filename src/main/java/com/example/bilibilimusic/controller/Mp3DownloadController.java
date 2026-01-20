@@ -34,10 +34,13 @@ public class Mp3DownloadController {
             Mp3DownloadService.Mp3DownloadResult result = downloadService.downloadMp3(request.bvid, request.url);
             Path file = result.file();
             long size = safeSize(file);
+            String streamUrl = "/api/media/mp3/" + result.bvid();
+            String downloadUrl = "/api/media/mp3/" + result.bvid() + "/download";
             return ResponseEntity.ok(new Mp3DownloadResponse(
                 result.bvid(),
                 file.toString(),
-                "/api/media/mp3/" + result.bvid(),
+                streamUrl,
+                downloadUrl,
                 size
             ));
         } catch (IllegalArgumentException e) {
@@ -67,6 +70,21 @@ public class Mp3DownloadController {
             .contentType(mediaType)
             .header(HttpHeaders.ACCEPT_RANGES, "bytes")
             .body(region);
+    }
+
+    @GetMapping("/{bvid}/download")
+    public ResponseEntity<Resource> downloadFile(@PathVariable String bvid) throws IOException {
+        Path file = downloadService.resolveMp3Path(bvid);
+        if (!Files.exists(file)) {
+            return ResponseEntity.notFound().build();
+        }
+        Resource resource = new FileSystemResource(file);
+        String fileName = bvid + ".mp3";
+        return ResponseEntity.ok()
+            .contentType(MediaType.APPLICATION_OCTET_STREAM)
+            .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + fileName + "\"")
+            .contentLength(resource.contentLength())
+            .body(resource);
     }
 
     private ResourceRegion resourceRegion(Resource resource, HttpHeaders headers) throws IOException {
@@ -100,12 +118,14 @@ public class Mp3DownloadController {
     public static class Mp3DownloadResponse {
         public String bvid;
         public String path;
+        public String streamUrl;
         public String downloadUrl;
         public long size;
 
-        public Mp3DownloadResponse(String bvid, String path, String downloadUrl, long size) {
+        public Mp3DownloadResponse(String bvid, String path, String streamUrl, String downloadUrl, long size) {
             this.bvid = bvid;
             this.path = path;
+            this.streamUrl = streamUrl;
             this.downloadUrl = downloadUrl;
             this.size = size;
         }
